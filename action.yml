@@ -1,0 +1,158 @@
+name: injectprobe
+description: Red-team your LLM app or agent for prompt injection on every pull request.
+author: injectprobe contributors
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  config:
+    description: Path to injectprobe.yaml (relative to working-directory).
+    default: injectprobe.yaml
+  threshold:
+    description: Max allowed attack success rate, 0-1. Empty uses the config value.
+    default: ""
+  baseline:
+    description: Baseline or results JSON. When set, the build fails only on new regressions.
+    default: ""
+  quick:
+    description: Run only the quick smoke set ("true" or "false").
+    default: "false"
+  working-directory:
+    description: Directory to run in.
+    default: "."
+  output-dir:
+    description: Where reports are written (relative to working-directory).
+    default: injectprobe-reports
+  python-version:
+    description: Python version to install.
+    default: "3.12"
+  extra-args:
+    description: Extra arguments for `injectprobe run`, e.g. "--category indirect --trials 5".
+    default: ""
+  comment:
+    description: Post or update one PR comment with the Markdown summary ("true" or "false").
+    default: "true"
+  upload-sarif:
+    description: Upload SARIF to GitHub code scanning ("true" or "false").
+    default: "true"
+  fail-on-findings:
+    description: Fail the job when the gate fails ("true"), or only report ("false"). Config or run errors always fail.
+    default: "true"
+
+outputs:
+  exit-code:
+    description: "injectprobe exit code: 0 passed, 1 over threshold or regressions, 2 config or run error."
+    value: ${{ steps.run.outputs.exit-code }}
+  success-rate:
+    description: Overall attack success rate (0-1).
+    value: ${{ steps.run.outputs.success-rate }}
+  report-dir:
+    description: Absolute path of the report directory.
+    value: ${{ steps.run.outputs.report-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install injectprobe
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: python -m pip install --quiet "${ACTION_PATH}[anthropic]"
+
+    - name: Run injectprobe
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        IP_CONFIG: ${{ inputs.config }}
+        IP_THRESHOLD: ${{ inputs.threshold }}
+        IP_BASELINE: ${{ inputs.baseline }}
+        IP_QUICK: ${{ inputs.quick }}
+        IP_OUT: ${{ inputs.output-dir }}
+        IP_EXTRA: ${{ inputs.extra-args }}
+      run: |
+        set +e
+        args=(run --config "$IP_CONFIG" --output-dir "$IP_OUT" --no-progress
+              --format json --format junit --format sarif --format markdown)
+        [ -n "$IP_THRESHOLD" ] && args+=(--threshold "$IP_THRESHOLD")
+        [ -n "$IP_BASELINE" ] && args+=(--baseline "$IP_BASELINE")
+        [ "$IP_QUICK" = "true" ] && args+=(--quick)
+        if [ -n "$IP_EXTRA" ]; then
+          read -r -a extra <<< "$IP_EXTRA"
+          args+=("${extra[@]}")
+        fi
+        injectprobe "${args[@]}"
+        code=$?
+        dir="$(cd "$IP_OUT" 2>/dev/null && pwd || echo "$PWD/$IP_OUT")"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "report-dir=$dir" >> "$GITHUB_OUTPUT"
+        if [ -f "$dir/results.json" ]; then
+          rate=$(python -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['summary']['success_rate'])" "$dir/results.json")
+          echo "success-rate=$rate" >> "$GITHUB_OUTPUT"
+        fi
+        [ -f "$dir/results.sarif" ] && echo "has-sarif=true" >> "$GITHUB_OUTPUT"
+        [ -f "$dir/summary.md" ] && cat "$dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+
+    - name: Upload reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: injectprobe-reports
+        path: ${{ steps.run.outputs.report-dir }}
+        if-no-files-found: warn
+
+    - name: Upload SARIF to code scanning
+      if: always() && inputs.upload-sarif == 'true' && steps.run.outputs.has-sarif == 'true'
+      continue-on-error: true  # forks and repos without code scanning lack permission
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.run.outputs.report-dir }}/results.sarif
+        category: injectprobe
+
+    - name: Post or update PR comment
+      if: always() && inputs.comment == 'true' && github.event_name == 'pull_request'
+      continue-on-error: true  # PRs from forks get a read-only token
+      uses: actions/github-script@v7
+      env:
+        SUMMARY_PATH: ${{ steps.run.outputs.report-dir }}/summary.md
+      with:
+        script: |
+          const fs = require('fs');
+          const path = process.env.SUMMARY_PATH;
+          if (!fs.existsSync(path)) { core.info('No summary.md, skipping comment.'); return; }
+          const body = fs.readFileSync(path, 'utf8');
+          const marker = '<!-- injectprobe-report -->';
+          const { owner, repo } = context.repo;
+          const issue_number = context.issue.number;
+          const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+          const mine = comments.find(c => c.body && c.body.includes(marker) && c.user && c.user.type === 'Bot');
+          if (mine) {
+            await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            core.info(`Updated comment ${mine.id}`);
+          } else {
+            const { data } = await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            core.info(`Created comment ${data.id}`);
+          }
+
+    - name: Apply gate
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.exit-code }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+      run: |
+        if [ -z "$CODE" ]; then echo "::error::injectprobe did not run"; exit 2; fi
+        if [ "$CODE" = "2" ]; then echo "::error::injectprobe config or run error"; exit 2; fi
+        if [ "$CODE" = "1" ]; then
+          if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+            echo "::error::Prompt injection gate failed (see the PR comment or the injectprobe-reports artifact)"; exit 1
+          fi
+          echo "::warning::Prompt injection gate failed, but fail-on-findings is false"
+        fi
+        exit 0

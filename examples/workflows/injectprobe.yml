@@ -1,0 +1,33 @@
+# Example: copy to .github/workflows/injectprobe.yml in your app's repository.
+# Starts your app, then probes it for prompt injection on every pull request.
+name: injectprobe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write    # post / update the PR comment
+  security-events: write  # upload SARIF to code scanning
+
+jobs:
+  prompt-injection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Start the app under test. Replace with however your app starts.
+      - name: Start app
+        run: |
+          pip install -r requirements.txt
+          python -m myapp.server &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - uses: Ham12-3/injectprobe@master   # pin to a release tag or commit SHA once you have one
+        with:
+          config: injectprobe.yaml
+          threshold: "0.1"
+          baseline: .injectprobe/baseline.json   # optional: fail only on regressions
+          quick: ${{ github.event.pull_request.draft && 'true' || 'false' }}
