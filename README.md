@@ -24,6 +24,7 @@ $ injectprobe run -c examples/hardened_bot/injectprobe.yaml
 - [Install](#install)
 - [Quick start (2 minutes, no API key)](#quick-start-2-minutes-no-api-key)
 - [Web app](#web-app)
+- [Comparing Claude models](#comparing-claude-models)
 - [Pointing it at your app](#pointing-it-at-your-app)
 - [The attack library](#the-attack-library)
 - [Writing a custom attack](#writing-a-custom-attack)
@@ -128,7 +129,8 @@ It opens `http://127.0.0.1:8080`, where you:
 1. **Confirm permission.** Agents on your own computer need nothing; for any other address you tick "I own this agent or have permission to test it".
 2. **Connect.** Click *Auto-detect format* to work out how your agent's API expects messages and where the reply is, or pick *Simple JSON*, *OpenAI-compatible* or *Custom* yourself. *Send a test message* shows your agent's answer as a chat bubble, so you know it's wired up. API keys stay in memory and are never written to reports.
 3. **Run.** Pick *Quick check* (13 attacks) or *Full test* (109), optionally filter categories, and add phrases from your system prompt so leaks can be detected.
-4. **Read the results:** the overall success rate, a pass/fail verdict, success by category, and each attack that worked with the exact message sent and your agent's reply. Download the JSON, Markdown, JUnit or SARIF report.
+4. **Watch the run log.** While it runs, a live log shows every attempt as proof of what happened: the attack, the canary code planted in it, the exact message sent (and the document it was hidden in), your agent's reply and any tool calls, and the verdict, either *injected* (the code came back) or *blocked*. Filter it, and download it as a text file.
+5. **Read the results:** the overall success rate, a pass/fail verdict, success by category, and each attack that worked with the exact message sent and your agent's reply. Download the JSON, Markdown, JUnit or SARIF report.
 
 Try it on the demo bot: run `python -m examples.vulnerable_bot`, then paste `http://127.0.0.1:8000/chat`.
 
@@ -147,6 +149,40 @@ Hosted mode also caps runs (2 at a time, at most 3 trials) and serves the canary
 
 Local mode only answers on `localhost`, and every API call needs a per-page token, so other websites you visit can't drive it.
 
+## Comparing Claude models
+
+[`examples/claude_agent`](examples/claude_agent) is **TripMate**, a small travel-booking agent built on the Claude API with the official `anthropic` SDK. It has three tools: `read_document`, `send_email` (only recorded, never sent) and `fetch_url` (only fetches addresses on your own computer). The model is part of the URL, so the same agent, tools and system prompt run on every model, which keeps the comparison fair.
+
+```bash
+pip install -e ".[demo,anthropic]"
+```
+
+```bash
+python -m examples.claude_agent.compare
+```
+
+This runs the quick attack set against every model in [`models.yaml`](examples/claude_agent/models.yaml): Claude Fable 5.2, Opus 5.5, Sonnet 5.5, Haiku 5.5, Opus 4.8, Sonnet 4.6 and Haiku 4.5. It then prints a ranking, success rates by category, and which attacks beat which model, and writes `comparison.md` plus one results file per model.
+
+**It calls the real Claude API with your key and costs money.** Before sending anything it checks which models your key can use, shows an estimate, and asks you to confirm. Rough costs for all seven models: quick set about $1-7; full library about $8-53 per trial. Spending stops after `--max-cost` (default $5).
+
+Useful options:
+
+| Option | |
+|---|---|
+| `--models claude-opus-5-5,claude-haiku-5-5` | only these models |
+| `--full` / `--trials 3` | all 109 attacks / more runs per attack for steadier rates |
+| `--prompt guarded` | a system prompt with explicit anti-injection rules, to see how much prompting helps each model |
+| `--categories indirect,exfiltration` | only some categories |
+| `--max-cost 10` | spending limit in USD |
+
+Each model runs with its default thinking and effort settings, so this compares models as they ship; set per-model `overrides` in `models.yaml` (for example `{output_config: {effort: high}}`) to change that. No sampling parameters are sent.
+
+To test one model from the web app, start the agent with `python -m examples.claude_agent` (it reads `ANTHROPIC_API_KEY` from `.env`), run `injectprobe serve`, and paste `http://127.0.0.1:8010/chat/claude-haiku-5-5` (any model id works; use `/chat/guarded/<model>` for the guarded prompt). Set *Field for documents* to `documents`, *Field for conversation history* to `history`, *Where tool calls are* to `$.tool_calls`, and add `ORCHID-42` as a system prompt phrase. Compare any saved runs with:
+
+```bash
+injectprobe compare runs/opus.json runs/haiku.json --label opus --label haiku
+```
+
 ## Pointing it at your app
 
 Create a starter config, then edit the `target` section:
@@ -155,7 +191,7 @@ Create a starter config, then edit the `target` section:
 injectprobe init --target http        # or: openai, anthropic, callable, mock
 ```
 
-API keys are **only** read from environment variables, and every resolved value is redacted from logs and reports.
+API keys are **only** read from environment variables, and every resolved value is redacted from logs and reports. You can keep them in a `.env` file in the folder you run from: copy [`.env.example`](.env.example) to `.env` and fill it in. `.env` is git-ignored, and variables already set in your shell or CI take precedence.
 
 ### 1. HTTP endpoint
 
@@ -248,6 +284,8 @@ authorised: true   # I own this system or have written permission to test it
 | `multi_turn` | 8 | trigger words, split payloads, permission creep |
 | `exfiltration` | 10 | markdown images, links, HTML `<img>`, email tools |
 | `indirect` | 24 | payloads hidden in documents, web pages, emails and tool results |
+
+Read every attack's exact text, with a plain-English explanation of each technique, in **[docs/ATTACKS.md](docs/ATTACKS.md)** (regenerate it with `injectprobe list --markdown > docs/ATTACKS.md`).
 
 ```bash
 injectprobe list
@@ -465,6 +503,7 @@ Tips: run the full library with more trials on `main` and `--quick` on pull requ
 | `injectprobe report RESULTS [-f terminal\|json\|junit\|sarif\|markdown] [-o OUT]` | convert a saved results file |
 | `injectprobe diff OLD NEW [--tolerance X] [--markdown]` | show regressions and improvements between two runs |
 | `injectprobe serve [--port N] [--public --public-url URL]` | start the web app |
+| `injectprobe compare RESULTS... [-l LABEL]... [--markdown] [-o OUT]` | compare several runs side by side |
 
 ## Development
 

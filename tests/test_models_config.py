@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -180,3 +181,27 @@ def test_secret_missing(monkeypatch):
 
 def test_redact_unregistered_bearer():
     assert "abcdefghijklmnop" not in secrets.redact("Authorization: Bearer abcdefghijklmnop")
+
+
+def test_threat_classes():
+    from injectprobe.models import threat_of
+
+    assert threat_of("indirect", "indirect") == "injection"
+    assert threat_of("exfiltration", Delivery.indirect) == "injection"
+    assert threat_of("system_prompt_extraction", "direct") == "leak"
+    assert threat_of("instruction_override", Delivery.direct) == "override"
+    r = _result([(1, 3)])
+    s = r.compute_summary()
+    assert s.by_threat["override"].successes == 1
+    assert r.results[0].model_dump()["threat"] == "override"
+
+
+def test_load_result_recomputes_older_files(tmp_path):
+    from injectprobe.baseline import load_result
+
+    r = _result([(1, 3)])
+    data = json.loads(r.model_dump_json())
+    data["summary"] = {}  # an older file without the newer breakdowns
+    p = tmp_path / "old.json"
+    p.write_text(json.dumps(data))
+    assert load_result(p).summary.by_threat["override"].attempts == 3

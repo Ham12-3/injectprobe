@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..baseline import DiffReport
-from ..models import CATEGORIES, RunResult
+from ..models import CATEGORIES, THREATS, RunResult
 from ._util import clean, pct, sample_reply
 
 SEV_STYLE = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
@@ -39,6 +39,21 @@ def print_report(result: RunResult, console: Console | None = None, top: int = 5
 
     if result.aborted:
         console.print(Text(f"Run stopped early: {result.abort_reason}. Results are partial.", style="bold yellow"))
+
+    if s.by_threat:
+        t = Table(title="Success rate by threat",
+                  caption="Hidden instructions are real prompt injection; user overrides only matter if your "
+                          "instructions forbid what was asked.", caption_justify="left")
+        t.add_column("Threat")
+        t.add_column("Attacks", justify="right")
+        t.add_column("Worked", justify="right")
+        t.add_column("Success rate", justify="right")
+        for th, name in THREATS.items():
+            g = s.by_threat.get(th)
+            if g is not None:
+                t.add_row(name, str(g.attacks), str(g.vulnerable),
+                          Text(pct(g.success_rate), style=_rate_style(g.success_rate)))
+        console.print(t)
 
     if s.by_category:
         t = Table(title="Success rate by category")

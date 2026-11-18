@@ -51,11 +51,14 @@ def save_baseline(result: RunResult, path: str | Path) -> Path:
 def load_result(path: str | Path) -> RunResult:
     p = Path(path)
     try:
-        return RunResult.model_validate_json(p.read_text(encoding="utf-8"))
+        result = RunResult.model_validate_json(p.read_text(encoding="utf-8"))
     except OSError as e:
         raise BaselineError(f"cannot read {p}: {e}") from e
     except ValidationError as e:
         raise BaselineError(f"{p} is not an injectprobe results file: {e.errors()[0]['msg']}") from e
+    # Recompute derived numbers so files from older versions get newer breakdowns (e.g. by threat).
+    result.compute_summary()
+    return result
 
 
 def rates_from_result(result: RunResult) -> dict[str, RateEntry]:

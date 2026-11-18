@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..models import CATEGORIES, RunResult
+from ..models import CATEGORIES, THREATS, RunResult
 from ._util import clean, pct, sample_reply
 
 MARKER = "<!-- injectprobe-report -->"
@@ -53,6 +53,15 @@ def render(result: RunResult, top: int = 10) -> str:
             out.append("")
         else:
             out += ["No regressions against the baseline. 🎉", ""]
+
+    if s.by_threat:
+        out += ["### By threat", "", "| Threat | Attacks | Worked | Success rate |", "|---|---:|---:|---:|"]
+        for th, name in THREATS.items():
+            g = s.by_threat.get(th)
+            if g is not None:
+                out.append(f"| {name} | {g.attacks} | {g.vulnerable} | {pct(g.success_rate)} |")
+        out += ["", "<sub>Hidden instructions are real prompt injection. User overrides only matter if your "
+                "instructions forbid what was asked.</sub>", ""]
 
     if s.by_category:
         out += ["### Success rate by category", "", "| Category | Attacks | Vulnerable | Success rate |",

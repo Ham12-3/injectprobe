@@ -116,6 +116,22 @@ details.attack pre { white-space: pre-wrap; word-break: break-word; background: 
   display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .progress > div { transition: none; } }
+.log-card .counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
+.count { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+.count b { font-variant-numeric: tabular-nums; }
+.count.inj { color: var(--bad); } .count.blk { color: var(--good); } .count.err { color: var(--warn); }
+.log { background: #0b0d10; color: #d7dde4; border-radius: 10px; padding: 10px 12px; height: 380px; overflow: auto;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; border: 1px solid var(--border); }
+.log .ev { padding: 3px 0; border-bottom: 1px solid #1b1f26; }
+.log .ev:last-child { border-bottom: 0; }
+.log .t { color: #7d8794; margin-right: 8px; }
+.log .tag { display: inline-block; min-width: 76px; font-weight: 700; margin-right: 6px; }
+.log .tag.send { color: #8ab4ff; } .log .tag.reply { color: #c3c9d2; } .log .tag.inj { color: #ff7a70; }
+.log .tag.blk { color: #4ade80; } .log .tag.err, .log .tag.retry { color: #f5b04c; } .log .tag.run { color: #c4b5fd; }
+.log .who { color: #7d8794; }
+.log .line { display: block; padding-left: 18px; white-space: pre-wrap; word-break: break-word; }
+.log .lab { color: #e8eaed; }
+.log .hidden-ev { display: none; }
 footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top: 30px; }
 </style>
 </head>
@@ -175,6 +191,12 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
           <input id="documents_field" type="text" placeholder="documents"></div>
         <div><label for="tool_calls_path">Where tool calls are (optional)</label>
           <input id="tool_calls_path" type="text" placeholder="$.tool_calls"></div>
+      </div>
+      <div class="row">
+        <div><label for="history_field">Field for conversation history (optional)</label>
+          <input id="history_field" type="text" placeholder="history"></div>
+        <div><p class="hint" style="margin:30px 0 0">Fill in documents and history if your agent accepts them,
+          so attacks hidden in documents and multi-turn attacks are tested properly.</p></div>
       </div>
     </div>
     <div id="fmt-openai" class="hidden">
@@ -242,6 +264,30 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
     <div class="actions"><button type="button" id="cancel-btn">Cancel</button></div>
   </section>
 
+  <!-- Live log -->
+  <section class="card hidden log-card" id="step-log">
+    <h2>Run log</h2>
+    <p class="sub">Every message injectprobe sends and every reply your agent gives, as it happens.
+      <b>Injected</b> means the planted canary code came back, so the attack worked.</p>
+    <div class="counts">
+      <span class="count">sent <b id="c-sent">0</b></span>
+      <span class="count inj">injected <b id="c-inj">0</b></span>
+      <span class="count blk">blocked <b id="c-blk">0</b></span>
+      <span class="count err">errors <b id="c-err">0</b></span>
+    </div>
+    <div class="actions" style="margin-top:0">
+      <div class="tabs" role="group" aria-label="Log filter">
+        <button type="button" data-logf="all" aria-pressed="true">All</button>
+        <button type="button" data-logf="inj" aria-pressed="false">Injected</button>
+        <button type="button" data-logf="blk" aria-pressed="false">Blocked</button>
+        <button type="button" data-logf="err" aria-pressed="false">Errors</button>
+      </div>
+      <label class="check" style="margin-left:auto"><input type="checkbox" id="autoscroll" checked> Follow</label>
+      <a id="log-download" href="#"><button type="button">Download log</button></a>
+    </div>
+    <div class="log" id="log" role="log" aria-live="off" tabindex="0"></div>
+  </section>
+
   <!-- Results -->
   <section class="card hidden" id="step-results" aria-live="polite">
     <div class="score">
@@ -256,6 +302,10 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
       <div class="stat"><b id="r-errors">0</b><span>errors</span></div>
     </div>
     <div id="r-notes"></div>
+    <h2 style="margin-top:20px">By threat</h2>
+    <p class="sub">Hidden instructions are real prompt injection (planted in documents, web pages, emails or tool
+      results). User overrides are direct requests from the user; they only matter if your agent is told to refuse them.</p>
+    <div id="r-threats"></div>
     <h2 style="margin-top:20px">By category</h2>
     <div id="r-cats"></div>
     <h2 style="margin-top:20px">Attacks that worked</h2>
@@ -274,7 +324,8 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
 const TOKEN = document.querySelector('meta[name="ip-token"]').content;
 const MODE = document.querySelector('meta[name="ip-mode"]').content;
 const $ = (id) => document.getElementById(id);
-const state = { format: "simple", scope: "quick", cats: new Set(), jobId: null, timer: null, info: null };
+const state = { format: "simple", scope: "quick", cats: new Set(), jobId: null, timer: null, info: null,
+  logSeq: 0, logFilter: "all", counts: { sent: 0, inj: 0, blk: 0, err: 0 } };
 
 // Build DOM nodes safely: strings always become text, never HTML.
 function h(tag, attrs, ...children) {
@@ -322,6 +373,7 @@ function spec() {
     Object.assign(s, { message_field: $("message_field").value.trim() || "message",
       response_path: $("response_path").value.trim() || "$.reply",
       documents_field: $("documents_field").value.trim() || null,
+      history_field: $("history_field").value.trim() || null,
       tool_calls_path: $("tool_calls_path").value.trim() || null });
   } else if (state.format === "openai") {
     s.model = $("model").value.trim() || null;
@@ -395,12 +447,14 @@ $("detect-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async (
   try {
     const d = await api("/api/detect", spec());
     if (!d.ok) { message("connect-msg", "warn", "Could not detect the format. " + (d.notes || []).join(" ")); return; }
+    if (d.url) $("url").value = d.url;  // auto-detect found the chat endpoint on the same server
     setFormat(d.format);
     if (d.format === "simple") {
       $("message_field").value = d.message_field; $("response_path").value = d.response_path;
       if (d.tool_calls_path) $("tool_calls_path").value = d.tool_calls_path;
     }
-    message("connect-msg", "good", "Detected: send the message as \"" + d.message_field + "\", reply found at " + d.response_path + ".");
+    message("connect-msg", "good", (d.url ? "Found the chat endpoint at " + d.url + ". " : "") +
+      "Detected: send the message as \"" + d.message_field + "\", reply found at " + d.response_path + ".");
     chat(d.sample_reply);
   } catch (e) { message("connect-msg", "bad", e.message); }
 }));
@@ -440,7 +494,8 @@ $("run-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async () =
     const job = await api("/api/runs", { target: spec(), scope: state.scope, trials: Number($("trials").value),
       categories: [...state.cats] });
     state.jobId = job.id;
-    show("step-results", false); show("step-progress");
+    resetLog(job.id);
+    show("step-results", false); show("step-progress"); show("step-log");
     $("step-progress").scrollIntoView({ behavior: "smooth", block: "start" });
     poll();
   } catch (e) { message("run-msg", "bad", e.message); }
@@ -454,12 +509,11 @@ $("again-btn").addEventListener("click", () => { show("step-results", false); $(
 async function poll() {
   clearTimeout(state.timer);
   let job;
-  try { job = await api("/api/runs/" + state.jobId); }
+  try { job = await api("/api/runs/" + state.jobId + "?since=" + state.logSeq); }
   catch (e) { show("step-progress", false); message("run-msg", "bad", e.message); return; }
-  const p = job.total ? job.done / job.total : 0;
-  $("prog-bar").firstElementChild.style.width = Math.round(p * 100) + "%";
-  $("prog-bar").setAttribute("aria-valuenow", String(Math.round(p * 100)));
-  $("prog-text").textContent = job.done + " of " + job.total + " attempts done";
+  appendLog(job.log || []);
+  updateProgress(job);
+  if (state.logSeq < job.log_size) { state.timer = setTimeout(poll, 50); return; }  // catch up on the log
   if (job.status === "running") { state.timer = setTimeout(poll, 700); return; }
   show("step-progress", false);
   if (job.status === "done") renderResults(job.result);
@@ -467,7 +521,120 @@ async function poll() {
   else message("run-msg", "bad", "The test failed: " + (job.error || "unknown error"));
 }
 
+function updateProgress(job) {
+  const p = job.total ? job.done / job.total : 0;
+  $("prog-bar").firstElementChild.style.width = Math.round(p * 100) + "%";
+  $("prog-bar").setAttribute("aria-valuenow", String(Math.round(p * 100)));
+  $("prog-text").textContent = job.done + " of " + job.total + " attempts done";
+}
+
+// ---------------------------------------------------------------- live log
+function resetLog(jobId) {
+  state.logSeq = 0; state.counts = { sent: 0, inj: 0, blk: 0, err: 0 };
+  $("log").replaceChildren();
+  ["sent", "inj", "blk", "err"].forEach((k) => { $("c-" + k).textContent = "0"; });
+  $("log-download").href = "/api/runs/" + jobId + "/log?token=" + encodeURIComponent(TOKEN);
+}
+function clock(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour12: false }); }
+function logLine(who, text) {
+  return h("span", { class: "line" }, h("span", { class: "who" }, who + "> "), text);
+}
+function eventNode(e) {
+  let tag = "", cls = "", kind = "all", label = e.attempt || "";
+  const lines = [];
+  switch (e.type) {
+    case "run_start":
+      tag = "RUN"; cls = "run"; label = "";
+      lines.push(h("span", { class: "line" }, e.attacks + " attacks x " + e.trials + " trial(s) = " + e.attempts +
+        " attempts against " + e.target + (e.listener ? " | canary listener " + e.listener : "")));
+      break;
+    case "attempt_start":
+      tag = "SEND"; cls = "send"; state.counts.sent++;
+      lines.push(h("span", { class: "line" }, h("span", { class: "who" }, e.category + " | " + e.severity +
+        (e.carrier ? " | hidden in a " + e.carrier : "") + " | canary "), e.canary));
+      lines.push(logLine("user", e.sent));
+      if (e.planted) lines.push(logLine(e.carrier, e.planted));
+      break;
+    case "reply":
+      tag = "REPLY"; cls = "reply";
+      if (e.turns > 1) label += " (turn " + e.turn + "/" + e.turns + ")";
+      label += " | " + e.latency_ms + " ms";
+      if (e.sent) lines.push(logLine("user", e.sent));
+      lines.push(logLine("agent", e.reply || "(empty)"));
+      (e.tool_calls || []).forEach((c) => lines.push(logLine("tool call", c.name + " " + c.arguments)));
+      break;
+    case "attempt_result":
+      if (e.success) {
+        tag = "INJECTED"; cls = "inj"; kind = "inj"; state.counts.inj++;
+        lines.push(h("span", { class: "line" }, "the attack worked, detected by " + e.detected_by.join(", ")));
+      } else {
+        tag = "BLOCKED"; cls = "blk"; kind = "blk"; state.counts.blk++;
+        lines.push(h("span", { class: "line" }, "canary " + e.canary + " never came back"));
+      }
+      break;
+    case "late_listener_hit":
+      tag = "INJECTED"; cls = "inj"; kind = "inj"; state.counts.inj++;
+      state.counts.blk = Math.max(0, state.counts.blk - 1);
+      lines.push(h("span", { class: "line" }, "the agent fetched the tracking URL after replying (canary " + e.canary + ")"));
+      break;
+    case "attempt_error":
+      tag = "ERROR"; cls = "err"; kind = "err"; state.counts.err++;
+      lines.push(h("span", { class: "line" }, e.error));
+      break;
+    case "retry":
+      tag = "RETRY"; cls = "retry"; kind = "err";
+      lines.push(h("span", { class: "line" }, "retry " + e.retry + ": " + e.reason));
+      break;
+    case "skipped":
+      tag = "SKIPPED"; cls = "retry"; label = e.attack;
+      lines.push(h("span", { class: "line" }, e.reason));
+      break;
+    case "budget_stop":
+      tag = "STOPPED"; cls = "err"; kind = "err"; label = "";
+      lines.push(h("span", { class: "line" }, e.reason));
+      break;
+    case "run_end":
+      tag = "RUN END"; cls = "run"; label = "";
+      lines.push(h("span", { class: "line" }, e.successful_attempts + "/" + e.attempts + " attempts succeeded (" +
+        pct(e.success_rate) + ") | " + e.vulnerable + "/" + e.tested + " attacks worked | " + e.errors +
+        " errors | " + e.requests + " requests | " + e.seconds + "s | " + (e.passed ? "PASSED" : "FAILED")));
+      break;
+    default:
+      tag = String(e.type); cls = "run";
+  }
+  const node = h("div", { class: "ev", "data-kind": kind },
+    h("span", { class: "t" }, clock(e.time)), h("span", { class: "tag " + cls }, tag),
+    h("span", { class: "lab" }, label), ...lines);
+  applyFilter(node);
+  return node;
+}
+function appendLog(events) {
+  if (!events.length) return;
+  const box = $("log");
+  const frag = document.createDocumentFragment();
+  events.forEach((e) => { frag.append(eventNode(e)); state.logSeq = Math.max(state.logSeq, e.seq); });
+  box.append(frag);
+  ["sent", "inj", "blk", "err"].forEach((k) => { $("c-" + k).textContent = String(state.counts[k]); });
+  if ($("autoscroll").checked) box.scrollTop = box.scrollHeight;
+}
+function applyFilter(node) {
+  const f = state.logFilter || "all";
+  node.classList.toggle("hidden-ev", f !== "all" && node.dataset.kind !== f);
+}
+document.querySelectorAll("[data-logf]").forEach((b) => b.addEventListener("click", () => {
+  state.logFilter = b.dataset.logf;
+  document.querySelectorAll("[data-logf]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  document.querySelectorAll("#log .ev").forEach(applyFilter);
+}));
+
 const CAT_NAMES = {};
+function barRow(name, rate) {
+  const color = rate === 0 ? "var(--good)" : rate < 0.34 ? "var(--warn)" : "var(--bad)";
+  const bar = h("div", { class: "bar" }, h("div", {}));
+  bar.firstElementChild.style.width = Math.max(2, Math.round(rate * 100)) + "%";
+  bar.firstElementChild.style.background = color;
+  return h("div", { class: "cat" }, h("span", {}, name), bar, h("span", { class: "pct" }, pct(rate)));
+}
 function renderResults(r) {
   const s = r.summary;
   $("r-rate").textContent = pct(s.success_rate);
@@ -483,6 +650,14 @@ function renderResults(r) {
   if (r.aborted) notes.append(h("div", { class: "msg warn" }, "Stopped early: " + r.abort_reason + ". Results are partial."));
   if (s.skipped) notes.append(h("div", { class: "msg warn" }, s.skipped + " system-prompt attack(s) were skipped: add phrases from your system prompt in step 3 to test for leaks."));
   if (s.errored_attempts) notes.append(h("div", { class: "msg warn" }, s.errored_attempts + " attempt(s) failed to get an answer from your agent."));
+
+  const THREAT_NAMES = { injection: "Hidden instructions", leak: "System prompt leaks", override: "User overrides" };
+  const threats = $("r-threats"); threats.replaceChildren();
+  ["injection", "leak", "override"].forEach((th) => {
+    const g = (s.by_threat || {})[th];
+    if (!g) return;
+    threats.append(barRow(THREAT_NAMES[th] + " (" + g.vulnerable + "/" + g.attacks + " worked)", g.success_rate));
+  });
 
   const cats = $("r-cats"); cats.replaceChildren();
   Object.entries(s.by_category).sort((a, b) => b[1].success_rate - a[1].success_rate).forEach(([cat, g]) => {

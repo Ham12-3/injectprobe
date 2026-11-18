@@ -67,7 +67,10 @@ def _version(value: bool) -> None:
 def main(
     version: bool = typer.Option(False, "--version", callback=_version, is_eager=True, help="Show version."),
 ) -> None:
-    pass
+    # API keys may live in a git-ignored .env file in the current directory.
+    from .dotenv import load_dotenv
+
+    load_dotenv()
 
 
 # --------------------------------------------------------------------------- init
@@ -107,6 +110,7 @@ def list_attacks(
     attacks_path: list[Path] = typer.Option([], "--attacks", "-a", help="Extra attack file or folder."),
     quick: bool = typer.Option(False, "--quick", help="Only the quick smoke set."),
     as_json: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+    as_markdown: bool = typer.Option(False, "--markdown", help="Print a readable catalog with every attack's text."),
 ) -> None:
     """List attacks, filterable by category, severity, tag or id."""
     try:
@@ -115,6 +119,11 @@ def list_attacks(
         )
     except AttackLoadError as e:
         raise _fail(str(e)) from e
+    if as_markdown:
+        from .catalog import catalog_markdown
+
+        typer.echo(catalog_markdown(attacks), nl=False)
+        return
     if as_json:
         # Plain JSON (no highlighting) so it can be piped into other tools.
         typer.echo(json.dumps([a.model_dump(mode="json") for a in attacks], indent=2, ensure_ascii=False))
@@ -251,6 +260,41 @@ def run(
         err.print("error: every attempt failed; check that the target is reachable")
         raise typer.Exit(EXIT_ERROR)
     raise typer.Exit(EXIT_OK if result.passed else EXIT_FAIL)
+
+
+# --------------------------------------------------------------------------- compare
+
+
+@app.command("compare")
+def compare_cmd(
+    results: list[Path] = typer.Argument(..., help="Two or more results.json files."),
+    label: list[str] = typer.Option([], "--label", "-l", help="Name for each file, in order (default: file name)."),
+    markdown_out: bool = typer.Option(False, "--markdown", help="Print Markdown instead of tables."),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Also write the Markdown to this file."),
+) -> None:
+    """Compare several runs side by side, e.g. the same agent on different models."""
+    from .reports.compare import comparison_markdown, print_comparison
+
+    if len(results) < 2:
+        raise _fail("give at least two results files")
+    if label and len(label) != len(results):
+        raise _fail("give one --label per results file")
+    runs = []
+    for i, path in enumerate(results):
+        try:
+            run = load_result(path)
+        except BaselineError as e:
+            raise _fail(str(e)) from e
+        name = label[i] if label else (path.stem if path.stem != "results" else path.parent.name)
+        runs.append((name, run))
+    md = comparison_markdown(runs)
+    if markdown_out:
+        console.out(md, end="", highlight=False)
+    else:
+        print_comparison(runs, console)
+    if output is not None:
+        output.write_text(md, encoding="utf-8")
+        console.print(f"Wrote {output}", style="dim")
 
 
 # --------------------------------------------------------------------------- serve

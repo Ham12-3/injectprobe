@@ -115,15 +115,70 @@ class Job:
     result: RunResult | None = None
     created: float = field(default_factory=time.time)
     task: asyncio.Task | None = None
+    log: list[dict[str, Any]] = field(default_factory=list)
 
-    def view(self) -> dict[str, Any]:
+    MAX_LOG = 20000
+
+    def add_event(self, event: dict[str, Any]) -> None:
+        if len(self.log) < self.MAX_LOG:
+            self.log.append({"seq": len(self.log) + 1, **event})
+
+    def view(self, since: int = 0) -> dict[str, Any]:
         out: dict[str, Any] = {
             "id": self.id, "status": self.status, "done": self.done, "total": self.total,
             "error": self.error, "target": self.target_url,
+            "log": self.log[since:since + 500], "log_size": len(self.log),
         }
         if self.result is not None:
             out["result"] = self.result.model_dump(mode="json")
         return out
+
+
+def format_event(e: dict[str, Any]) -> str:
+    """One readable log line (used for the downloadable .log file)."""
+    t = time.strftime("%H:%M:%S", time.localtime(e.get("time", 0)))
+    k = e.get("type")
+    if k == "run_start":
+        return (f"{t}  RUN START  {e['attacks']} attacks x {e['trials']} trial(s) = {e['attempts']} attempts "
+                f"against {e['target']}" + (f"; canary listener at {e['listener']}" if e.get("listener") else ""))
+    if k == "attempt_start":
+        where = f" planted in a {e['carrier']}" if e.get("carrier") else ""
+        lines = [f"{t}  SEND       {e['attempt']}  [{e['category']}, {e['severity']}]{where}  canary={e['canary']}",
+                 f"           user> {e['sent']}"]
+        if e.get("planted"):
+            lines.append(f"           {e['carrier']}> {e['planted']}")
+        return "\n".join(lines)
+    if k == "reply":
+        lines = []
+        if e.get("sent"):
+            lines.append(f"           user> {e['sent']}")
+        turn = f" (turn {e['turn']}/{e['turns']})" if e.get("turns", 1) > 1 else ""
+        lines.append(f"{t}  REPLY      {e['attempt']}{turn} in {e['latency_ms']} ms")
+        lines.append(f"           agent> {e['reply'] or '(empty)'}")
+        for c in e.get("tool_calls") or []:
+            lines.append(f"           tool call> {c['name']} {c['arguments']}")
+        return "\n".join(lines)
+    if k == "attempt_result":
+        if e["success"]:
+            return f"{t}  INJECTED   {e['attempt']}  detected by {', '.join(e['detected_by'])}"
+        return f"{t}  BLOCKED    {e['attempt']}  canary {e['canary']} never appeared"
+    if k == "attempt_error":
+        return f"{t}  ERROR      {e['attempt']}  {e['error']}"
+    if k == "retry":
+        return f"{t}  RETRY      {e['attempt']}  retry {e['retry']}: {e['reason']}"
+    if k == "skipped":
+        return f"{t}  SKIPPED    {e['attack']}  {e['reason']}"
+    if k == "late_listener_hit":
+        return f"{t}  INJECTED   {e['attempt']}  late fetch of the canary URL ({e['canary']})"
+    if k == "budget_stop":
+        return f"{t}  STOPPED    {e['reason']}"
+    if k == "run_end":
+        return (f"{t}  RUN END    {e['successful_attempts']}/{e['attempts']} attempts succeeded "
+                f"({e['success_rate']:.0%}); {e['vulnerable']}/{e['tested']} attacks worked; "
+                f"{e['errors']} errors; {e['requests']} requests; {e['seconds']}s; "
+                f"{'PASSED' if e['passed'] else 'FAILED'}")
+    return f"{t}  {k}"
+
 
 
 # --------------------------------------------------------------------------- app
@@ -298,7 +353,7 @@ def create_app(
         await check(spec)
         d = await detect(spec.url.strip(), headers_for(spec), transport=transport, model=spec.model)
         return {
-            "ok": d.ok, "format": d.format, "message_field": d.message_field,
+            "ok": d.ok, "url": d.url, "format": d.format, "message_field": d.message_field,
             "response_path": d.response_path, "tool_calls_path": d.tool_calls_path,
             "sample_reply": ipsecrets.redact(d.sample_reply), "notes": d.notes,
         }
@@ -347,9 +402,11 @@ def create_app(
         async def go() -> None:
             try:
                 target = HttpTarget(cfg.target, timeout=cfg.run.timeout, transport=transport)
-                job.result = await run_probe(cfg, cases, target=target, progress=progress, listener=canary)
+                job.result = await run_probe(cfg, cases, target=target, progress=progress, listener=canary,
+                                             on_event=job.add_event)
                 job.status = "done"
             except asyncio.CancelledError:
+                job.add_event({"type": "budget_stop", "time": time.time(), "reason": "cancelled by the user"})
                 job.status = "cancelled"
             except Exception as e:  # noqa: BLE001 - shown to the user
                 job.status = "error"
@@ -359,11 +416,22 @@ def create_app(
         return job.view()
 
     @app.get("/api/runs/{job_id}", dependencies=[Depends(guard)])
-    async def get_run(job_id: str) -> dict[str, Any]:
+    async def get_run(job_id: str, since: int = 0) -> dict[str, Any]:
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(404, "No such run")
-        return job.view()
+        return job.view(max(0, since))
+
+    @app.get("/api/runs/{job_id}/log")
+    async def download_log(job_id: str, token: str = "") -> PlainTextResponse:
+        if not pysecrets.compare_digest(token, page_token):
+            raise HTTPException(403, "Missing or wrong page token")
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "No such run")
+        text = "\n".join(format_event(e) for e in job.log) + "\n"
+        return PlainTextResponse(text, headers={
+            "Content-Disposition": f'attachment; filename="injectprobe-{job_id}.log"'})
 
     @app.post("/api/runs/{job_id}/cancel", dependencies=[Depends(guard)])
     async def cancel_run(job_id: str) -> dict[str, Any]:

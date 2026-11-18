@@ -104,6 +104,12 @@ class _CasePlan:
 
 
 ProgressFn = Callable[[int], None]
+EventFn = Callable[[dict[str, Any]], None]
+
+
+def _excerpt(text: str, limit: int = 400) -> str:
+    text = secrets.redact(text or "")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 class Runner:
@@ -117,8 +123,10 @@ class Runner:
         judge: LLMJudge | None = None,
         progress: ProgressFn | None = None,
         config_path: str | None = None,
+        on_event: EventFn | None = None,
     ):
         self.cfg = cfg
+        self.on_event = on_event
         self.target = target
         self.cases = cases
         self.listener = listener
@@ -147,12 +155,21 @@ class Runner:
             parts.extend(f"[turn {i + 1}]\n{t}" for i, t in enumerate(p.turns))
         return "\n\n".join(parts)
 
+    def _emit(self, kind: str, **data: Any) -> None:
+        """Report progress to an optional observer (the web app's live log). Never raises."""
+        if self.on_event is None:
+            return
+        try:
+            self.on_event({"type": kind, "time": time.time(), **data})
+        except Exception:  # noqa: BLE001 - an observer must not break the run
+            pass
+
     def _canary_base(self) -> str:
         if self.listener is not None:
             return self.listener.base_url
         return (self.cfg.canary.public_url or DEFAULT_CANARY_BASE).rstrip("/")
 
-    async def _send(self, request: TargetRequest) -> TargetResponse:
+    async def _send(self, request: TargetRequest, label: str = "") -> TargetResponse:
         r = self.cfg.run
         last: Exception | None = None
         for i in range(r.retries + 1):
@@ -176,6 +193,7 @@ class Runner:
                 )
                 return resp
             if i < r.retries:
+                self._emit("retry", attempt=label, reason=_excerpt(str(last), 200), retry=i + 1)
                 await asyncio.sleep(r.backoff_base * (2**i) * (1 + random.random() * 0.25))
         assert last is not None
         raise last
@@ -183,21 +201,39 @@ class Runner:
     async def _attempt(self, plan: _CasePlan, trial: int) -> Attempt:
         canary = new_canary(self.cfg.canary.prefix, self._canary_base())
         probe: RenderedProbe = render_case(plan.case, canary)
+        a = plan.case.attack
+        label = f"{plan.case.id}#{trial + 1}"
+        self._emit(
+            "attempt_start", attempt=label, attack=plan.case.id, trial=trial + 1, category=a.category,
+            severity=a.severity.value, delivery=a.delivery.value,
+            carrier=a.carrier.value if a.carrier else None, canary=canary.token, turns=len(probe.turns),
+            sent=_excerpt(probe.turns[0]),
+            planted=_excerpt(probe.context[0].content) if probe.context else None,
+        )
         messages: list[Message] = []
         replies: list[str] = []
         tool_calls: list[ToolCall] = []
         start = time.monotonic()
         try:
-            for turn in probe.turns:
+            for i, turn in enumerate(probe.turns):
                 messages.append(Message(role="user", content=turn))
                 req = TargetRequest(messages=list(messages), context=probe.context, canary=canary.token)
-                resp = await self._send(req)
+                t0 = time.monotonic()
+                resp = await self._send(req, label)
                 replies.append(resp.text)
                 tool_calls.extend(resp.tool_calls)
                 messages.append(Message(role="assistant", content=resp.text))
+                self._emit(
+                    "reply", attempt=label, turn=i + 1, turns=len(probe.turns),
+                    sent=_excerpt(turn, 200) if i else None, reply=_excerpt(resp.text),
+                    tool_calls=[{"name": c.name, "arguments": _excerpt(str(c.arguments), 200)} for c in resp.tool_calls],
+                    latency_ms=round((time.monotonic() - t0) * 1000),
+                )
         except BudgetExceeded:
             raise
         except Exception as e:  # noqa: BLE001 - every failure becomes an attempt error
+            self._emit("attempt_error", attempt=label, attack=plan.case.id,
+                       error=_excerpt(f"{type(e).__name__}: {e}", 300))
             return Attempt(
                 trial=trial,
                 canary=canary.token,
@@ -223,6 +259,11 @@ class Runner:
             ev = evidence()
             if ev.listener_hits:
                 verdict = await evaluate(plan.case.attack, ev, None)
+        self._emit(
+            "attempt_result", attempt=label, attack=plan.case.id, success=verdict.success,
+            detected_by=verdict.detected_by, canary=canary.token,
+            latency_ms=round((time.monotonic() - start) * 1000), judge_reason=verdict.judge_reason,
+        )
         return Attempt(
             trial=trial,
             canary=canary.token,
@@ -285,15 +326,24 @@ class Runner:
                 try:
                     attempt = await self._attempt(plan, trial)
                 except BudgetExceeded:
+                    if not abort.is_set():
+                        self._emit("budget_stop", reason=self.budget.exceeded)
                     abort.set()
                     self.progress(1)
                     return
                 plan.attempts.append(attempt)
                 self.progress(1)
 
+        self._emit(
+            "run_start", attacks=len(plans), trials=self.cfg.run.trials,
+            attempts=sum(self.cfg.run.trials for p in plans if p.result.status != "skipped"),
+            target=self.target.describe().endpoint or self.target.describe().type,
+            listener=self.listener.base_url if self.listener is not None else None,
+        )
         jobs = []
         for plan in plans:
             if plan.result.status == "skipped":
+                self._emit("skipped", attack=plan.case.id, reason=plan.result.skip_reason)
                 self.progress(self.cfg.run.trials)
                 continue
             for trial in range(self.cfg.run.trials):
@@ -309,6 +359,8 @@ class Runner:
                     if not att.success and att.error is None and self.listener.hits_for(att.canary):
                         att.success = True
                         att.detected_by.append("canary:listener")
+                        self._emit("late_listener_hit", attempt=f"{plan.case.id}#{att.trial + 1}",
+                                   attack=plan.case.id, canary=att.canary)
 
         for plan in plans:
             plan.attempts.sort(key=lambda x: x.trial)
@@ -335,6 +387,13 @@ class Runner:
         )
         result.compute_summary()
         result.evaluate()
+        s = result.summary
+        self._emit(
+            "run_end", success_rate=s.success_rate, successful_attempts=s.successful_attempts,
+            attempts=s.attempts, vulnerable=s.vulnerable_attacks, tested=s.tested, skipped=s.skipped,
+            errors=s.errored_attempts, requests=result.requests_made, passed=result.passed,
+            seconds=round(result.duration_s, 1),
+        )
         return result
 
 
@@ -360,6 +419,7 @@ async def run_probe(
     progress: ProgressFn | None = None,
     config_path: str | None = None,
     listener: Any = None,
+    on_event: EventFn | None = None,
 ) -> RunResult:
     """Set up the listener, target and judge, then run everything.
 
@@ -379,9 +439,10 @@ async def run_probe(
             if judge is not None:
                 async with judge:
                     runner = Runner(cfg, target, cases, listener=listener, judge=judge,
-                                    progress=progress, config_path=config_path)
+                                    progress=progress, config_path=config_path, on_event=on_event)
                     return await runner.run()
-            runner = Runner(cfg, target, cases, listener=listener, progress=progress, config_path=config_path)
+            runner = Runner(cfg, target, cases, listener=listener, progress=progress, config_path=config_path,
+                            on_event=on_event)
             return await runner.run()
     finally:
         if owns_listener and listener is not None:

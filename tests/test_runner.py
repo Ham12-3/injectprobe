@@ -186,3 +186,34 @@ def test_run_probe_safe_mock_passes():
                       "run": {"trials": 1, "rate_limit": None}, "canary": {"grace_seconds": 0}})
     r = run(run_probe(c, cases("io-*", "ex-*")))
     assert r.summary.successful_attempts == 0 and r.passed
+
+
+def test_events_describe_every_attempt():
+    events = []
+
+    async def fn(n, req):
+        return TargetResponse(text=req.canary if n == 1 else "nope")
+
+    c = cfg(trials=2, concurrency=1)
+    run(Runner(c, ScriptTarget(fn), cases("io-001*", "spe-001*"), on_event=events.append).run())
+    kinds = [e["type"] for e in events]
+    assert kinds[0] == "run_start" and kinds[-1] == "run_end"
+    assert kinds.count("attempt_start") == 2 and kinds.count("attempt_result") == 2
+    assert "skipped" in kinds  # spe-001 has no detector here
+    start = next(e for e in events if e["type"] == "attempt_start")
+    assert start["canary"].startswith("IPX-") and start["canary"] not in start["sent"]  # only the halves are sent
+    results = [e for e in events if e["type"] == "attempt_result"]
+    assert [r["success"] for r in results] == [True, False]
+    assert results[0]["detected_by"] == ["canary:reply"]
+    assert events[-1]["successful_attempts"] == 1
+
+
+def test_broken_event_observer_does_not_break_run():
+    def boom(e):
+        raise RuntimeError("observer bug")
+
+    async def fn(n, req):
+        return TargetResponse(text="x")
+
+    r = run(Runner(cfg(), ScriptTarget(fn), cases("io-001*"), on_event=boom).run())
+    assert r.results[0].completed == 1

@@ -24,6 +24,27 @@ CATEGORIES: dict[str, str] = {
     "indirect": "Indirect injection (documents, web, email, tool results)",
 }
 
+# Every attack falls into one threat class, so results can be read by what is at stake:
+#   injection: instructions hidden in content the agent reads (indirect delivery). Nobody
+#              asked for this behaviour; it is what real prompt-injection attacks look like.
+#   leak:      the agent reveals its confidential system prompt.
+#   override:  the user directly asks the agent to step outside its instructions (print a
+#              code, change persona, email somewhere). This matters when your system prompt
+#              restricts behaviour; an unrestricted assistant may comply by design.
+THREATS: dict[str, str] = {
+    "injection": "Hidden instructions (documents, web, email, tool results)",
+    "leak": "System prompt leaks",
+    "override": "User overrides (direct requests)",
+}
+
+
+def threat_of(category: str, delivery: "Delivery | str") -> str:
+    if str(getattr(delivery, "value", delivery)) == "indirect":
+        return "injection"
+    if category == "system_prompt_extraction":
+        return "leak"
+    return "override"
+
 
 class Severity(str, Enum):
     low = "low"
@@ -196,6 +217,11 @@ class AttackResult(BaseModel):
     def success_rate(self) -> float:
         return self.successes / self.completed if self.completed else 0.0
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def threat(self) -> str:
+        return threat_of(self.category, self.delivery)
+
     def first_successful(self) -> Attempt | None:
         return next((a for a in self.attempts if a.success), None)
 
@@ -224,6 +250,7 @@ class RunSummary(BaseModel):
     success_rate: float = 0.0
     by_category: dict[str, GroupStat] = Field(default_factory=dict)
     by_severity: dict[str, GroupStat] = Field(default_factory=dict)
+    by_threat: dict[str, GroupStat] = Field(default_factory=dict)
 
 
 class Regression(BaseModel):
@@ -279,7 +306,8 @@ class RunResult(BaseModel):
             vulnerable = r.successes > 0
             if vulnerable:
                 s.vulnerable_attacks += 1
-            for key, bucket in ((r.category, s.by_category), (r.severity.value, s.by_severity)):
+            for key, bucket in ((r.category, s.by_category), (r.severity.value, s.by_severity),
+                                (r.threat, s.by_threat)):
                 g = bucket.setdefault(key, GroupStat())
                 g.attacks += 1
                 g.vulnerable += int(vulnerable)

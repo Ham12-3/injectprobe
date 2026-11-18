@@ -228,3 +228,39 @@ def test_canary_endpoint_records_hits():
     r = client.get("/c/IPX-ABCDE12345.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
     assert app.state.canary.hits_for("IPX-ABCDE12345")
+
+
+def test_run_log_streams_and_downloads():
+    app, client = client_for()
+    with client:
+        r = client.post("/api/runs", json={"target": spec(), "scope": "full", "categories": ["exfiltration"]})
+        job = wait_for(client, r.json()["id"])
+        assert job["log_size"] > 0
+        first = client.get(f"/api/runs/{job['id']}", params={"since": 0}).json()["log"]
+        kinds = {e["type"] for e in first}
+        assert {"run_start", "attempt_start", "reply", "attempt_result", "run_end"} <= kinds
+        assert [e["seq"] for e in first] == list(range(1, len(first) + 1))
+        rest = client.get(f"/api/runs/{job['id']}", params={"since": job["log_size"]}).json()["log"]
+        assert rest == []
+        text = client.get(f"/api/runs/{job['id']}/log", params={"token": app.state.page_token})
+        assert text.status_code == 200 and "RUN START" in text.text and "INJECTED" in text.text
+        assert "agent> " in text.text and "user> " in text.text
+        assert client.get(f"/api/runs/{job['id']}/log").status_code == 403
+
+
+def test_detect_finds_chat_endpoint_when_root_is_pasted():
+    _, client = client_for()
+    d = client.post("/api/detect", json={"url": "http://127.0.0.1:8000/"}).json()
+    assert d["ok"] and d["url"] == "http://127.0.0.1:8000/chat"
+    assert d["response_path"] == "$.reply" and "found the chat endpoint" in d["notes"][0]
+
+
+def test_detect_explains_when_no_endpoint_found():
+    def handler(req):
+        return httpx.Response(404)
+
+    app = create_app(transport=httpx.MockTransport(handler), allowed_hosts={"testserver"})
+    client = TestClient(app)
+    client.headers["X-Injectprobe-Token"] = app.state.page_token
+    d = client.post("/api/detect", json={"url": "http://127.0.0.1:9/"}).json()
+    assert not d["ok"] and "chat endpoint" in d["notes"][0]
