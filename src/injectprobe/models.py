@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 # --------------------------------------------------------------------------- #
 # Attack definitions
@@ -176,18 +176,22 @@ class AttackResult(BaseModel):
     skip_reason: str | None = None
     attempts: list[Attempt] = Field(default_factory=list)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def completed(self) -> int:
         return sum(1 for a in self.attempts if a.error is None)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def successes(self) -> int:
         return sum(1 for a in self.attempts if a.success)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def errors(self) -> int:
         return sum(1 for a in self.attempts if a.error is not None)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def success_rate(self) -> float:
         return self.successes / self.completed if self.completed else 0.0
@@ -202,6 +206,7 @@ class GroupStat(BaseModel):
     attempts: int = 0
     successes: int = 0
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def success_rate(self) -> float:
         return self.successes / self.attempts if self.attempts else 0.0
