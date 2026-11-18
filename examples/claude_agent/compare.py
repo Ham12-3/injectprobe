@@ -9,7 +9,7 @@ prints a side-by-side table. The agent runs in-process, so no server is needed.
 
 This calls the real Claude API and costs money. It prints an estimate and asks
 before sending anything (skip the question with --yes). Needs the Anthropic SDK
-and a credential the SDK can find, usually ANTHROPIC_API_KEY.
+and a credential the SDK can find, usually ANTHROPIC_API_KEY (from the environment or a .env file).
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from injectprobe.config import parse_config
+from injectprobe.dotenv import load_dotenv
 from injectprobe.loader import TestCase, expand_cases, filter_attacks, load_attacks
 from injectprobe.models import Delivery, RunResult
 from injectprobe.reports import render
@@ -221,6 +222,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()  # ANTHROPIC_API_KEY can live in a git-ignored .env file
     return asyncio.run(main_async(parse_args(argv)))
 
 

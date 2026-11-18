@@ -190,7 +190,7 @@ Create a starter config, then edit the `target` section:
 injectprobe init --target http        # or: openai, anthropic, callable, mock
 ```
 
-API keys are **only** read from environment variables, and every resolved value is redacted from logs and reports.
+API keys are **only** read from environment variables, and every resolved value is redacted from logs and reports. You can keep them in a `.env` file in the folder you run from: copy [`.env.example`](.env.example) to `.env` and fill it in. `.env` is git-ignored, and variables already set in your shell or CI take precedence.
 
 ### 1. HTTP endpoint
 

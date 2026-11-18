@@ -67,7 +67,10 @@ def _version(value: bool) -> None:
 def main(
     version: bool = typer.Option(False, "--version", callback=_version, is_eager=True, help="Show version."),
 ) -> None:
-    pass
+    # API keys may live in a git-ignored .env file in the current directory.
+    from .dotenv import load_dotenv
+
+    load_dotenv()
 
 
 # --------------------------------------------------------------------------- init
