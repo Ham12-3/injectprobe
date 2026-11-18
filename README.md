@@ -2,7 +2,7 @@
 
 Red-team your LLM app or agent for **prompt injection**, locally and on every pull request.
 
-Point injectprobe at your own app. It fires a library of 109 injection attacks, works out which ones landed, and prints a report. In CI it fails the build when the attack success rate goes above your threshold, or, with a baseline, only when something regresses.
+Use it as a **web app** (paste your agent's URL into a page) or as a **command-line tool** and GitHub Action. Point injectprobe at your own app. It fires a library of 109 injection attacks, works out which ones landed, and prints a report. In CI it fails the build when the attack success rate goes above your threshold, or, with a baseline, only when something regresses.
 
 > **Only test systems you own or have explicit permission to test.** injectprobe refuses to target anything other than localhost unless your config says `authorised: true`. Every payload has a harmless goal: print a random canary token, call a dummy tool, or fetch a canary URL on your own machine.
 
@@ -23,6 +23,7 @@ $ injectprobe run -c examples/hardened_bot/injectprobe.yaml
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quick start (2 minutes, no API key)](#quick-start-2-minutes-no-api-key)
+- [Web app](#web-app)
 - [Pointing it at your app](#pointing-it-at-your-app)
 - [The attack library](#the-attack-library)
 - [Writing a custom attack](#writing-a-custom-attack)
@@ -49,7 +50,7 @@ Python 3.11 or newer.
 pip install "git+https://github.com/Ham12-3/injectprobe"
 ```
 
-Optional extras: `[anthropic]` for the Anthropic target and judge, `[demo]` for the demo bots, `[dev]` for everything plus pytest.
+Optional extras: `[web]` for the web app, `[anthropic]` for the Anthropic target and judge, `[demo]` for the demo bots, `[dev]` for everything plus pytest.
 
 ```bash
 pip install "injectprobe[anthropic] @ git+https://github.com/Ham12-3/injectprobe"
@@ -109,6 +110,42 @@ injectprobe run -c examples/mock_target/injectprobe.yaml --quick
 ```bash
 injectprobe run -c examples/callable_agent.yaml --quick
 ```
+
+## Web app
+
+Prefer clicking to typing? Start the web app and paste your agent's URL into it:
+
+```bash
+pip install "injectprobe[web] @ git+https://github.com/Ham12-3/injectprobe"
+```
+
+```bash
+injectprobe serve
+```
+
+It opens `http://127.0.0.1:8080`, where you:
+
+1. **Confirm permission.** Agents on your own computer need nothing; for any other address you tick "I own this agent or have permission to test it".
+2. **Connect.** Click *Auto-detect format* to work out how your agent's API expects messages and where the reply is, or pick *Simple JSON*, *OpenAI-compatible* or *Custom* yourself. *Send a test message* shows your agent's answer as a chat bubble, so you know it's wired up. API keys stay in memory and are never written to reports.
+3. **Run.** Pick *Quick check* (13 attacks) or *Full test* (109), optionally filter categories, and add phrases from your system prompt so leaks can be detected.
+4. **Read the results:** the overall success rate, a pass/fail verdict, success by category, and each attack that worked with the exact message sent and your agent's reply. Download the JSON, Markdown, JUnit or SARIF report.
+
+Try it on the demo bot: run `python -m examples.vulnerable_bot`, then paste `http://127.0.0.1:8000/chat`.
+
+### Hosting it on your own domain
+
+```bash
+injectprobe serve --public --public-url https://probe.yourdomain.com --host 0.0.0.0 --port 8080
+```
+
+Put it behind HTTPS (a reverse proxy such as Caddy or nginx). In hosted mode anyone can open the page, so it adds two guardrails that local mode doesn't need:
+
+- **Domain ownership.** Before a domain can be tested, its owner must publish the code the page shows at `https://<their-domain>/.well-known/injectprobe.txt`, the same way Google Search Console verifies sites. Set `INJECTPROBE_SECRET` to keep codes valid across restarts.
+- **No internal targets.** Agents must resolve to public internet addresses; localhost and private networks are refused.
+
+Hosted mode also caps runs (2 at a time, at most 3 trials) and serves the canary endpoint itself at `--public-url`, so exfiltration attacks are detected even when the agent fetches the attacker's URL from its own server.
+
+Local mode only answers on `localhost`, and every API call needs a per-page token, so other websites you visit can't drive it.
 
 ## Pointing it at your app
 
@@ -427,6 +464,7 @@ Tips: run the full library with more trials on `main` and `--quick` on pull requ
 | `injectprobe list [-c CAT] [-s SEV] [-t TAG] [--id GLOB] [-a PATH] [--json]` | list attacks |
 | `injectprobe report RESULTS [-f terminal\|json\|junit\|sarif\|markdown] [-o OUT]` | convert a saved results file |
 | `injectprobe diff OLD NEW [--tolerance X] [--markdown]` | show regressions and improvements between two runs |
+| `injectprobe serve [--port N] [--public --public-url URL]` | start the web app |
 
 ## Development
 
@@ -455,6 +493,7 @@ src/injectprobe/
   runner.py       async runner with run controls
   baseline.py     baselines and diffs
   targets/        http, openai_compat, anthropic, callable, mock
+  web/            web app (serve): API, ownership checks, single-page UI
   reports/        terminal, json, junit, sarif, markdown
   attacks/        the built-in attack library
 examples/         demo bots, mock and callable configs, example workflow

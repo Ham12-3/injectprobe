@@ -253,6 +253,45 @@ def run(
     raise typer.Exit(EXIT_OK if result.passed else EXIT_FAIL)
 
 
+# --------------------------------------------------------------------------- serve
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to listen on."),
+    port: int = typer.Option(8080, "--port", "-p", help="Port to listen on."),
+    public: bool = typer.Option(False, "--public", help="Hosted mode: anyone may use it, but every target "
+                                "must be on the public internet and its owner must verify the domain."),
+    public_url: Optional[str] = typer.Option(None, "--public-url", help="The URL people reach this server at "
+                                             "(hosted mode). Also used as the canary address agents can fetch."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the page in your browser."),
+) -> None:
+    """Start the web app: paste an agent's URL, check the connection, run attacks, read the report."""
+    try:
+        import uvicorn
+
+        from .web.server import create_app
+    except ImportError as e:
+        raise _fail("the web app needs: pip install 'injectprobe[web]'") from e
+    from .config import is_local_host
+
+    if public and not public_url:
+        raise _fail("--public needs --public-url (the address people use to reach this server)")
+    if not public and not is_local_host(host):
+        raise _fail("local mode only listens on localhost; use --public to host it for others")
+    url = f"http://{host}:{port}" if not public else public_url
+    console.print(f"injectprobe web app ({'hosted' if public else 'local'} mode) at [bold]{url}[/]")
+    if not public:
+        console.print(AUTH_NOTICE, style="dim")
+        if open_browser:
+            import threading
+            import webbrowser
+
+            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    web_app = create_app(public=public, public_url=public_url, port=port)
+    uvicorn.run(web_app, host=host, port=port, log_level="warning")
+
+
 # --------------------------------------------------------------------------- report
 
 

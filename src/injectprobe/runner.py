@@ -7,7 +7,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 
@@ -359,10 +359,16 @@ async def run_probe(
     target: Target | None = None,
     progress: ProgressFn | None = None,
     config_path: str | None = None,
+    listener: Any = None,
 ) -> RunResult:
-    """Set up the listener, target and judge, then run everything."""
-    listener = None
-    if needs_listener(cfg, cases):
+    """Set up the listener, target and judge, then run everything.
+
+    ``listener`` may be supplied by the caller (anything with ``base_url`` and
+    ``hits_for(token)``, e.g. the web server's own canary endpoint); the caller
+    then owns its lifecycle.
+    """
+    owns_listener = listener is None
+    if listener is None and needs_listener(cfg, cases):
         listener = CanaryListener(cfg.canary.host, cfg.canary.port, cfg.canary.public_url).start()
     try:
         target = target or build_target(cfg)
@@ -378,5 +384,5 @@ async def run_probe(
             runner = Runner(cfg, target, cases, listener=listener, progress=progress, config_path=config_path)
             return await runner.run()
     finally:
-        if listener is not None:
+        if owns_listener and listener is not None:
             listener.stop()
