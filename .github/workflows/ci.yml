@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  # Dogfood the composite action against the hardened demo bot.
+  action:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start hardened demo bot
+        run: |
+          python -m pip install --quiet fastapi uvicorn httpx
+          python -m examples.hardened_bot &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8001/health && break; sleep 1; done
+      - name: Run injectprobe action
+        id: probe
+        uses: ./
+        with:
+          config: examples/hardened_bot/injectprobe.yaml
+          quick: "true"
+          fail-on-findings: "false"  # the demo bot is meant to have gaps
+      - run: echo "success rate ${{ steps.probe.outputs.success-rate }}, exit ${{ steps.probe.outputs.exit-code }}"
