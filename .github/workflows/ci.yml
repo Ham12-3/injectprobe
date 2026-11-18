@@ -47,5 +47,8 @@ jobs:
         with:
           config: examples/hardened_bot/injectprobe.yaml
           quick: "true"
-          fail-on-findings: "false"  # the demo bot is meant to have gaps
+          # The demo bot is meant to have gaps: report them, but don't fail the job or
+          # turn them into code scanning alerts on this repository.
+          fail-on-findings: "false"
+          upload-sarif: "false"
       - run: echo "success rate ${{ steps.probe.outputs.success-rate }}, exit ${{ steps.probe.outputs.exit-code }}"
