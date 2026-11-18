@@ -353,7 +353,7 @@ def create_app(
         await check(spec)
         d = await detect(spec.url.strip(), headers_for(spec), transport=transport, model=spec.model)
         return {
-            "ok": d.ok, "format": d.format, "message_field": d.message_field,
+            "ok": d.ok, "url": d.url, "format": d.format, "message_field": d.message_field,
             "response_path": d.response_path, "tool_calls_path": d.tool_calls_path,
             "sample_reply": ipsecrets.redact(d.sample_reply), "notes": d.notes,
         }

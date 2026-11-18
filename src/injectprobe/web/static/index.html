@@ -447,12 +447,14 @@ $("detect-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async (
   try {
     const d = await api("/api/detect", spec());
     if (!d.ok) { message("connect-msg", "warn", "Could not detect the format. " + (d.notes || []).join(" ")); return; }
+    if (d.url) $("url").value = d.url;  // auto-detect found the chat endpoint on the same server
     setFormat(d.format);
     if (d.format === "simple") {
       $("message_field").value = d.message_field; $("response_path").value = d.response_path;
       if (d.tool_calls_path) $("tool_calls_path").value = d.tool_calls_path;
     }
-    message("connect-msg", "good", "Detected: send the message as \"" + d.message_field + "\", reply found at " + d.response_path + ".");
+    message("connect-msg", "good", (d.url ? "Found the chat endpoint at " + d.url + ". " : "") +
+      "Detected: send the message as \"" + d.message_field + "\", reply found at " + d.response_path + ".");
     chat(d.sample_reply);
   } catch (e) { message("connect-msg", "bad", e.message); }
 }));

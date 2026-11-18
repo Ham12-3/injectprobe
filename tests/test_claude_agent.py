@@ -245,3 +245,16 @@ def test_cli_compare(tmp_path):
     assert r.exit_code == 0, r.stdout
     assert "alpha" in r.stdout and (tmp_path / "cmp.md").exists()
     assert runner.invoke(app, ["compare", str(tmp_path / "alpha.json")]).exit_code == 2
+
+
+def test_agent_bare_address_uses_default_model(fake, monkeypatch):
+    monkeypatch.setenv("AGENT_MODEL", "fake-safe")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=agent.app), base_url="http://t") as c:
+            return [await c.post("/", json={"message": "hi"}), await c.post("/chat", json={"message": "hi"}),
+                    await c.get("/")]
+
+    root, chat, page = asyncio.run(go())
+    assert root.json()["model"] == "fake-safe" and chat.json()["model"] == "fake-safe"
+    assert page.status_code == 200 and "/chat/claude-haiku-5-5" in page.text and agent.SECRET in page.text

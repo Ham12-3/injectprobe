@@ -246,3 +246,21 @@ def test_run_log_streams_and_downloads():
         assert text.status_code == 200 and "RUN START" in text.text and "INJECTED" in text.text
         assert "agent> " in text.text and "user> " in text.text
         assert client.get(f"/api/runs/{job['id']}/log").status_code == 403
+
+
+def test_detect_finds_chat_endpoint_when_root_is_pasted():
+    _, client = client_for()
+    d = client.post("/api/detect", json={"url": "http://127.0.0.1:8000/"}).json()
+    assert d["ok"] and d["url"] == "http://127.0.0.1:8000/chat"
+    assert d["response_path"] == "$.reply" and "found the chat endpoint" in d["notes"][0]
+
+
+def test_detect_explains_when_no_endpoint_found():
+    def handler(req):
+        return httpx.Response(404)
+
+    app = create_app(transport=httpx.MockTransport(handler), allowed_hosts={"testserver"})
+    client = TestClient(app)
+    client.headers["X-Injectprobe-Token"] = app.state.page_token
+    d = client.post("/api/detect", json={"url": "http://127.0.0.1:9/"}).json()
+    assert not d["ok"] and "chat endpoint" in d["notes"][0]

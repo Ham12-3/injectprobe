@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -20,9 +21,13 @@ REPLY_PATHS = [
 TOOL_PATHS = ["$.tool_calls", "$.data.tool_calls", "$.choices[0].message.tool_calls"]
 
 
+CHAT_PATHS = ["/chat", "/api/chat", "/v1/chat/completions", "/chat/completions", "/api/message", "/message"]
+
+
 @dataclass
 class Detection:
     ok: bool
+    url: str | None = None  # set when a different chat endpoint was found
     format: str = "simple"
     message_field: str = "message"
     response_path: str = "$.reply"
@@ -52,14 +57,33 @@ def find_tool_path(data: Any) -> str | None:
     return None
 
 
+async def find_chat_url(url: str, headers: dict[str, str], transport: httpx.AsyncBaseTransport | None) -> str | None:
+    """When ``url`` answers 404, look for a chat endpoint on the same server (at most 6 requests)."""
+    parts = urlsplit(url)
+    base = urlunsplit((parts.scheme, parts.netloc, "", "", "")).rstrip("/")
+    prefix = parts.path.rstrip("/")
+    candidates = [prefix + p for p in CHAT_PATHS] if prefix else list(CHAT_PATHS)
+    async with httpx.AsyncClient(timeout=20, transport=transport, follow_redirects=False) as client:
+        for path in candidates[:6]:
+            try:
+                resp = await client.post(base + path, json={"message": PROBE_TEXT}, headers=headers)
+            except httpx.HTTPError:
+                return None
+            if resp.status_code not in (404, 405):
+                return base + path
+    return None
+
+
 async def detect(
     url: str,
     headers: dict[str, str],
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     model: str | None = None,
+    _searched: bool = False,
 ) -> Detection:
-    """Try common request shapes, at most 7 requests. Stops early on auth errors."""
+    """Try common request shapes, at most 7 requests (plus a short endpoint search on 404).
+    Stops early on auth errors."""
     notes: list[str] = []
     attempts: list[tuple[str, dict[str, Any]]] = [(k, {k: PROBE_TEXT}) for k in BODY_KEYS]
     openai_body: dict[str, Any] = {"messages": [{"role": "user", "content": PROBE_TEXT}]}
@@ -78,8 +102,17 @@ async def detect(
                 return Detection(ok=False, notes=[f"Could not reach the agent: {type(e).__name__}"])
             if resp.status_code in (401, 403):
                 return Detection(ok=False, notes=[f"The agent answered HTTP {resp.status_code}: add or check the API key."])
-            if resp.status_code == 404:
-                return Detection(ok=False, notes=["HTTP 404: check the URL points at the chat endpoint, not the home page."])
+            if resp.status_code in (404, 405):
+                if not _searched:
+                    found = await find_chat_url(url, headers, transport)
+                    if found:
+                        d = await detect(found, headers, transport=transport, model=model, _searched=True)
+                        d.url = found
+                        d.notes.insert(0, f"Nothing answers chat messages at {url}; found the chat endpoint at {found}.")
+                        return d
+                return Detection(ok=False, notes=[
+                    f"HTTP {resp.status_code} at {url}: nothing accepts chat messages there. Check that the URL "
+                    "points at your agent's chat endpoint (often ending in /chat or /api/chat), not its home page."])
             if resp.status_code >= 400:
                 notes.append(f"{key}: HTTP {resp.status_code}")
                 continue
