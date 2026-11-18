@@ -253,6 +253,41 @@ def run(
     raise typer.Exit(EXIT_OK if result.passed else EXIT_FAIL)
 
 
+# --------------------------------------------------------------------------- compare
+
+
+@app.command("compare")
+def compare_cmd(
+    results: list[Path] = typer.Argument(..., help="Two or more results.json files."),
+    label: list[str] = typer.Option([], "--label", "-l", help="Name for each file, in order (default: file name)."),
+    markdown_out: bool = typer.Option(False, "--markdown", help="Print Markdown instead of tables."),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Also write the Markdown to this file."),
+) -> None:
+    """Compare several runs side by side, e.g. the same agent on different models."""
+    from .reports.compare import comparison_markdown, print_comparison
+
+    if len(results) < 2:
+        raise _fail("give at least two results files")
+    if label and len(label) != len(results):
+        raise _fail("give one --label per results file")
+    runs = []
+    for i, path in enumerate(results):
+        try:
+            run = load_result(path)
+        except BaselineError as e:
+            raise _fail(str(e)) from e
+        name = label[i] if label else (path.stem if path.stem != "results" else path.parent.name)
+        runs.append((name, run))
+    md = comparison_markdown(runs)
+    if markdown_out:
+        console.out(md, end="", highlight=False)
+    else:
+        print_comparison(runs, console)
+    if output is not None:
+        output.write_text(md, encoding="utf-8")
+        console.print(f"Wrote {output}", style="dim")
+
+
 # --------------------------------------------------------------------------- serve
 
 

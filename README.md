@@ -24,6 +24,7 @@ $ injectprobe run -c examples/hardened_bot/injectprobe.yaml
 - [Install](#install)
 - [Quick start (2 minutes, no API key)](#quick-start-2-minutes-no-api-key)
 - [Web app](#web-app)
+- [Comparing Claude models](#comparing-claude-models)
 - [Pointing it at your app](#pointing-it-at-your-app)
 - [The attack library](#the-attack-library)
 - [Writing a custom attack](#writing-a-custom-attack)
@@ -146,6 +147,40 @@ Put it behind HTTPS (a reverse proxy such as Caddy or nginx). In hosted mode any
 Hosted mode also caps runs (2 at a time, at most 3 trials) and serves the canary endpoint itself at `--public-url`, so exfiltration attacks are detected even when the agent fetches the attacker's URL from its own server.
 
 Local mode only answers on `localhost`, and every API call needs a per-page token, so other websites you visit can't drive it.
+
+## Comparing Claude models
+
+[`examples/claude_agent`](examples/claude_agent) is **TripMate**, a small travel-booking agent built on the Claude API with the official `anthropic` SDK. It has three tools: `read_document`, `send_email` (only recorded, never sent) and `fetch_url` (only fetches addresses on your own computer). The model is part of the URL, so the same agent, tools and system prompt run on every model, which keeps the comparison fair.
+
+```bash
+pip install -e ".[demo,anthropic]"
+```
+
+```bash
+python -m examples.claude_agent.compare
+```
+
+This runs the quick attack set against every model in [`models.yaml`](examples/claude_agent/models.yaml): Claude Fable 5.2, Opus 5.5, Sonnet 5.5, Haiku 5.5, Opus 4.8, Sonnet 4.6 and Haiku 4.5. It then prints a ranking, success rates by category, and which attacks beat which model, and writes `comparison.md` plus one results file per model.
+
+**It calls the real Claude API with your key and costs money.** Before sending anything it checks which models your key can use, shows an estimate, and asks you to confirm. Rough costs for all seven models: quick set about $1-7; full library about $8-53 per trial. Spending stops after `--max-cost` (default $5).
+
+Useful options:
+
+| Option | |
+|---|---|
+| `--models claude-opus-5-5,claude-haiku-5-5` | only these models |
+| `--full` / `--trials 3` | all 109 attacks / more runs per attack for steadier rates |
+| `--prompt guarded` | a system prompt with explicit anti-injection rules, to see how much prompting helps each model |
+| `--categories indirect,exfiltration` | only some categories |
+| `--max-cost 10` | spending limit in USD |
+
+Each model runs with its default thinking and effort settings, so this compares models as they ship; set per-model `overrides` in `models.yaml` (for example `{output_config: {effort: high}}`) to change that. No sampling parameters are sent.
+
+To test one model from the web app or CLI instead, serve the agent with `python -m examples.claude_agent` and point injectprobe at `http://127.0.0.1:8010/chat/claude-opus-5-5`. Compare any saved runs with:
+
+```bash
+injectprobe compare runs/opus.json runs/haiku.json --label opus --label haiku
+```
 
 ## Pointing it at your app
 
@@ -465,6 +500,7 @@ Tips: run the full library with more trials on `main` and `--quick` on pull requ
 | `injectprobe report RESULTS [-f terminal\|json\|junit\|sarif\|markdown] [-o OUT]` | convert a saved results file |
 | `injectprobe diff OLD NEW [--tolerance X] [--markdown]` | show regressions and improvements between two runs |
 | `injectprobe serve [--port N] [--public --public-url URL]` | start the web app |
+| `injectprobe compare RESULTS... [-l LABEL]... [--markdown] [-o OUT]` | compare several runs side by side |
 
 ## Development
 

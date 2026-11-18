@@ -1,0 +1,24 @@
+# Claude models to compare. Every model runs the same TripMate agent, tools and
+# system prompt, with its own default thinking/effort settings ("as shipped").
+#
+# price: [input, output] in USD per million tokens (Anthropic API list prices as of
+# November 2026). Used only for the estimate and the cost column; check
+# https://www.anthropic.com/pricing before relying on them.
+#
+# overrides: optional extra fields for messages.create, e.g.
+#   overrides: {output_config: {effort: high}}
+models:
+  - id: claude-fable-5-2
+    price: [8.00, 40.00]
+  - id: claude-opus-5-5
+    price: [4.00, 20.00]
+  - id: claude-sonnet-5-5
+    price: [2.00, 10.00]
+  - id: claude-haiku-5-5
+    price: [0.10, 0.50]     # prompts up to 100K tokens
+  - id: claude-opus-4-8
+    price: [5.00, 25.00]
+  - id: claude-sonnet-4-6
+    price: [3.00, 15.00]
+  - id: claude-haiku-4-5
+    price: [1.00, 5.00]
