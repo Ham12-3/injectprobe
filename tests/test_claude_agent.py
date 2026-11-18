@@ -199,7 +199,7 @@ def _run(rates):
     from injectprobe.models import AttackResult, Attempt, Delivery, RunResult, Severity, TargetInfo
 
     results = [AttackResult(id=aid, attack_id=aid, category=cat, severity=Severity.high, description="",
-                            delivery=Delivery.direct,
+                            delivery=Delivery.indirect if cat == "indirect" else Delivery.direct,
                             attempts=[Attempt(trial=0, canary="X", success=ok)])
                for aid, cat, ok in rates]
     now = datetime.now(timezone.utc)
@@ -217,7 +217,12 @@ def test_comparison_report():
     matrix = attack_matrix(runs)
     assert matrix[0][0] == "ind-1" and matrix[0][2] == [1.0, 1.0]
     md = comparison_markdown(runs, costs={"model-a": 0.5, "model-b": 0.25}, notes=["note"])
-    assert "| 1 | `model-b` | **50%**" in md and "$0.2500" in md and "> note" in md
+    # columns: hidden instructions | prompt leaks | user overrides | overall
+    assert "| 1 | `model-b` | **100%** | - | 0% | 50% |" in md
+    assert "$0.2500" in md and "> note" in md and "Hidden instructions =" in md
+    assert a.summary.by_threat["injection"].success_rate == 1.0
+    assert a.summary.by_threat["override"].success_rate == 1.0
+    assert b.summary.by_threat["override"].success_rate == 0.0
     from rich.console import Console
 
     con = Console(record=True, width=140)

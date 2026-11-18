@@ -302,6 +302,10 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
       <div class="stat"><b id="r-errors">0</b><span>errors</span></div>
     </div>
     <div id="r-notes"></div>
+    <h2 style="margin-top:20px">By threat</h2>
+    <p class="sub">Hidden instructions are real prompt injection (planted in documents, web pages, emails or tool
+      results). User overrides are direct requests from the user; they only matter if your agent is told to refuse them.</p>
+    <div id="r-threats"></div>
     <h2 style="margin-top:20px">By category</h2>
     <div id="r-cats"></div>
     <h2 style="margin-top:20px">Attacks that worked</h2>
@@ -622,6 +626,13 @@ document.querySelectorAll("[data-logf]").forEach((b) => b.addEventListener("clic
 }));
 
 const CAT_NAMES = {};
+function barRow(name, rate) {
+  const color = rate === 0 ? "var(--good)" : rate < 0.34 ? "var(--warn)" : "var(--bad)";
+  const bar = h("div", { class: "bar" }, h("div", {}));
+  bar.firstElementChild.style.width = Math.max(2, Math.round(rate * 100)) + "%";
+  bar.firstElementChild.style.background = color;
+  return h("div", { class: "cat" }, h("span", {}, name), bar, h("span", { class: "pct" }, pct(rate)));
+}
 function renderResults(r) {
   const s = r.summary;
   $("r-rate").textContent = pct(s.success_rate);
@@ -637,6 +648,14 @@ function renderResults(r) {
   if (r.aborted) notes.append(h("div", { class: "msg warn" }, "Stopped early: " + r.abort_reason + ". Results are partial."));
   if (s.skipped) notes.append(h("div", { class: "msg warn" }, s.skipped + " system-prompt attack(s) were skipped: add phrases from your system prompt in step 3 to test for leaks."));
   if (s.errored_attempts) notes.append(h("div", { class: "msg warn" }, s.errored_attempts + " attempt(s) failed to get an answer from your agent."));
+
+  const THREAT_NAMES = { injection: "Hidden instructions", leak: "System prompt leaks", override: "User overrides" };
+  const threats = $("r-threats"); threats.replaceChildren();
+  ["injection", "leak", "override"].forEach((th) => {
+    const g = (s.by_threat || {})[th];
+    if (!g) return;
+    threats.append(barRow(THREAT_NAMES[th] + " (" + g.vulnerable + "/" + g.attacks + " worked)", g.success_rate));
+  });
 
   const cats = $("r-cats"); cats.replaceChildren();
   Object.entries(s.by_category).sort((a, b) => b[1].success_rate - a[1].success_rate).forEach(([cat, g]) => {

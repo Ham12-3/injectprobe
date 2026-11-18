@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ..models import CATEGORIES, RunResult
+from ..models import CATEGORIES, THREATS, RunResult
 from ._util import pct
 
 Runs = list[tuple[str, RunResult]]
@@ -16,9 +16,24 @@ def _style(rate: float) -> str:
     return "green" if rate == 0 else ("yellow" if rate < 0.34 else "red")
 
 
+THREAT_ORDER = ["injection", "leak", "override"]
+SHORT = {"injection": "Hidden instructions", "leak": "Prompt leaks", "override": "User overrides"}
+EXPLAIN = ("Hidden instructions = attacks planted in documents, web pages, emails and tool results (real prompt "
+           "injection). Prompt leaks = the confidential system prompt revealed. User overrides = the user directly "
+           "asks the agent to break its instructions; this only matters if your instructions forbid it.")
+
+
+def threat_rate(r: RunResult, threat: str) -> float | None:
+    g = r.summary.by_threat.get(threat)
+    return None if g is None or not g.attempts else g.success_rate
+
+
 def ranked(runs: Runs) -> Runs:
-    """Most resistant first (lowest success rate)."""
-    return sorted(runs, key=lambda lr: (lr[1].summary.success_rate, -lr[1].summary.attempts))
+    """Most resistant first: hidden instructions, then leaks, then user overrides, then overall."""
+    def key(lr: tuple[str, RunResult]) -> tuple:
+        r = lr[1]
+        return tuple(threat_rate(r, t) or 0.0 for t in THREAT_ORDER) + (r.summary.success_rate,)
+    return sorted(runs, key=key)
 
 
 def categories(runs: Runs) -> list[str]:
@@ -49,19 +64,24 @@ def attack_matrix(runs: Runs, limit: int = 25) -> list[tuple[str, str, list[floa
 def print_comparison(runs: Runs, console: Console | None = None, costs: dict[str, float] | None = None) -> None:
     console = console or Console()
     runs = ranked(runs)
-    t = Table(title="Prompt injection resistance (lower is better)")
+    t = Table(title="Prompt injection resistance (lower is better)", caption=EXPLAIN, caption_justify="left")
     t.add_column("#", justify="right")
     t.add_column("Run")
-    t.add_column("Success rate", justify="right")
-    t.add_column("Vulnerable attacks", justify="right")
+    for th in THREAT_ORDER:
+        t.add_column(SHORT[th], justify="right")
+    t.add_column("Overall", justify="right")
     t.add_column("Attempts", justify="right")
     t.add_column("Errors", justify="right")
     if costs:
         t.add_column("Cost", justify="right")
     for n, (label, r) in enumerate(runs, 1):
         s = r.summary
-        row = [str(n), label, Text(pct(s.success_rate), style=_style(s.success_rate)),
-               f"{s.vulnerable_attacks}/{s.tested}", str(s.attempts), str(s.errored_attempts)]
+        cells = []
+        for th in THREAT_ORDER:
+            rate = threat_rate(r, th)
+            cells.append(Text("-") if rate is None else Text(pct(rate), style=_style(rate)))
+        row = [str(n), label, *cells, Text(pct(s.success_rate), style=_style(s.success_rate)),
+               str(s.attempts), str(s.errored_attempts)]
         if costs:
             row.append(f"${costs.get(label, 0.0):.4f}")
         t.add_row(*row)
@@ -100,12 +120,18 @@ def comparison_markdown(runs: Runs, costs: dict[str, float] | None = None, title
         out.append(f"> {n}")
     if notes:
         out.append("")
-    head = "| # | Run | Success rate | Vulnerable attacks | Attempts | Errors |" + (" Cost |" if costs else "")
-    sep = "|---:|---|---:|---:|---:|---:|" + ("---:|" if costs else "")
-    out += ["Lower is better: the share of attack attempts that tricked the agent.", "", head, sep]
+    head = ("| # | Run | " + " | ".join(SHORT[t] for t in THREAT_ORDER) + " | Overall | Attempts | Errors |"
+            + (" Cost |" if costs else ""))
+    sep = "|---:|---|" + "---:|" * len(THREAT_ORDER) + "---:|---:|---:|" + ("---:|" if costs else "")
+    out += ["Lower is better: the share of attack attempts that tricked the agent. Ranked by hidden "
+            "instructions first, then prompt leaks, then user overrides.", "", f"*{EXPLAIN}*", "", head, sep]
     for n, (label, r) in enumerate(runs, 1):
         s = r.summary
-        line = (f"| {n} | `{label}` | **{pct(s.success_rate)}** | {s.vulnerable_attacks}/{s.tested} "
+        cells = []
+        for th in THREAT_ORDER:
+            rate = threat_rate(r, th)
+            cells.append("-" if rate is None else (f"**{pct(rate)}**" if th == "injection" else pct(rate)))
+        line = (f"| {n} | `{label}` | " + " | ".join(cells) + f" | {pct(s.success_rate)} "
                 f"| {s.attempts} | {s.errored_attempts} |")
         if costs:
             line += f" ${costs.get(label, 0.0):.4f} |"
