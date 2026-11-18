@@ -37,7 +37,7 @@ dev = ["pytest>=8", "fastapi>=0.110", "uvicorn>=0.29", "anthropic>=1.0"]
 injectprobe = "injectprobe.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/injectprobe/injectprobe"
+Homepage = "https://github.com/Ham12-3/injectprobe"
 
 [tool.setuptools.packages.find]
 where = ["src"]

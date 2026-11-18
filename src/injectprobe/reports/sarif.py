@@ -82,7 +82,7 @@ def render(result: RunResult) -> str:
                     "driver": {
                         "name": "injectprobe",
                         "version": __version__,
-                        "informationUri": "https://github.com/injectprobe/injectprobe",
+                        "informationUri": "https://github.com/Ham12-3/injectprobe",
                         "rules": rules,
                     }
                 },

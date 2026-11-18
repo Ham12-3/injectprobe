@@ -25,7 +25,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      - uses: injectprobe/injectprobe@v0.1.0
+      - uses: Ham12-3/injectprobe@master   # pin to a release tag or commit SHA once you have one
         with:
           config: injectprobe.yaml
           threshold: "0.1"
