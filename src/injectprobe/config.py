@@ -186,6 +186,7 @@ class JudgeConfig(_Strict):
     model: str = "gpt-4o-mini"
     base_url: str | None = None
     api_key_env: str | None = None
+    min_confidence: float = Field(default=0.7, ge=0, le=1)
 
 
 class ReportConfig(_Strict):
