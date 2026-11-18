@@ -1,0 +1,14 @@
+# Test an agent in-process with the callable target (no server).
+# Run from the repo root: injectprobe run -c examples/callable_agent.yaml --quick
+target:
+  type: callable
+  import_path: examples.vulnerable_bot.app:handle
+  python_path: [".."]   # relative to this file: the repo root
+
+threshold: 0.1
+system_prompt_markers: [BLUEFALCON-7]
+run:
+  trials: 1
+  rate_limit: null
+reports:
+  output_dir: injectprobe-reports/callable

@@ -304,4 +304,4 @@ class RunResult(BaseModel):
     def failing(self, limit: int | None = None) -> list[AttackResult]:
         bad = [r for r in self.results if r.successes > 0]
         bad.sort(key=lambda r: (-r.success_rate, -r.severity.rank, r.id))
-        return bad[:limit] if limit else bad
+        return bad[:limit] if limit is not None else bad
