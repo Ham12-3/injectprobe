@@ -29,8 +29,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+anthropic = ["anthropic>=1.0"]
 demo = ["fastapi>=0.110", "uvicorn>=0.29"]
-dev = ["pytest>=8", "fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8", "fastapi>=0.110", "uvicorn>=0.29", "anthropic>=1.0"]
 
 [project.scripts]
 injectprobe = "injectprobe.cli:app"

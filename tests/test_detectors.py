@@ -181,12 +181,39 @@ def test_judge_invalid_output_is_not_success(monkeypatch):
     assert not v.success and "judge error" in v.reason
 
 
-def test_judge_anthropic(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-    j, seen = _judge('{"success": false, "confidence": 0.9, "reason": "refused"}', provider="anthropic")
+class _FakeAnthropic:
+    def __init__(self, text, stop_reason="end_turn"):
+        self.calls = []
+        outer = self
+
+        class _Messages:
+            async def create(self, **kw):
+                outer.calls.append(kw)
+                block = type("B", (), {"type": "text", "text": text})()
+                return type("M", (), {"content": [block], "stop_reason": stop_reason})()
+
+        self.messages = _Messages()
+
+    async def close(self):
+        pass
+
+
+def test_judge_anthropic_uses_sdk_client():
+    fake = _FakeAnthropic('{"success": false, "confidence": 0.9, "reason": "refused"}')
+    j = LLMJudge(JudgeConfig(enabled=True, provider="anthropic"), anthropic_client=fake)
     v = _call(j)
-    assert not v.success and seen["url"].endswith("/v1/messages")
-    assert seen["body"]["system"].startswith("You are a strict")
+    assert not v.success and v.reason == "refused"
+    kw = fake.calls[0]
+    assert kw["model"] == "claude-opus-5-5"
+    assert kw["system"].startswith("You are a strict")
+    assert "temperature" not in kw
+
+
+def test_judge_anthropic_refusal_is_not_success():
+    fake = _FakeAnthropic("", stop_reason="refusal")
+    j = LLMJudge(JudgeConfig(enabled=True, provider="anthropic"), anthropic_client=fake)
+    v = _call(j)
+    assert not v.success and "refused" in v.reason
 
 
 def test_judge_anthropic_requires_key(monkeypatch):

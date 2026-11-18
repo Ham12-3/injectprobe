@@ -76,9 +76,13 @@ class _ChatTargetBase(_Strict):
     system_prompt: str | None = None
     system_prompt_file: str | None = None
     tools: list[ToolDef] = Field(default_factory=default_tools)
-    temperature: float | None = None
-    max_tokens: int = 1024
+    max_tokens: int = Field(default=1024, ge=1)
     plant_system_canary: bool = False
+    # How tool_result context is delivered: as a real tool call + tool result turn
+    # (what agents do), or as plain text above the user message.
+    tool_results_as: Literal["tool_result", "text"] = "tool_result"
+    # Extra request fields merged into every request body, to mirror the app's real settings.
+    extra_body: dict[str, Any] = Field(default_factory=dict)
 
     def resolved_system_prompt(self, base_dir: Path | None = None) -> str | None:
         if self.system_prompt_file:
@@ -96,13 +100,21 @@ class OpenAITargetConfig(_ChatTargetBase):
     type: Literal["openai"]
     base_url: str = "https://api.openai.com/v1"
     api_key_env: str | None = "OPENAI_API_KEY"
+    temperature: float | None = None
 
 
 class AnthropicTargetConfig(_ChatTargetBase):
+    """Anthropic Messages API via the official SDK (``pip install 'injectprobe[anthropic]'``).
+
+    Sampling parameters such as temperature are not sent: current Claude models reject them.
+    """
+
     type: Literal["anthropic"]
     base_url: str = "https://api.anthropic.com"
-    model: str = "claude-haiku-5-5"
+    model: str = "claude-opus-5-5"
     api_key_env: str = "ANTHROPIC_API_KEY"
+    max_tokens: int = Field(default=16000, ge=1)
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
 
 
 class CallableTargetConfig(_Strict):
@@ -183,7 +195,7 @@ class CanaryConfig(_Strict):
 class JudgeConfig(_Strict):
     enabled: bool = False
     provider: Literal["openai", "anthropic"] = "openai"
-    model: str = "gpt-4o-mini"
+    model: str | None = None  # default: gpt-4o-mini (openai) or claude-opus-5-5 (anthropic)
     base_url: str | None = None
     api_key_env: str | None = None
     min_confidence: float = Field(default=0.7, ge=0, le=1)

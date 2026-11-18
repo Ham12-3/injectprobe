@@ -36,7 +36,7 @@ target:
     "anthropic": """\
 target:
   type: anthropic
-  model: claude-haiku-5-5
+  model: claude-opus-5-5
   api_key_env: ANTHROPIC_API_KEY         # read from the environment only
   system_prompt_file: system_prompt.txt  # or: system_prompt: "You are ..."
   plant_system_canary: true
