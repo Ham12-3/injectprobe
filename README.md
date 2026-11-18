@@ -129,7 +129,8 @@ It opens `http://127.0.0.1:8080`, where you:
 1. **Confirm permission.** Agents on your own computer need nothing; for any other address you tick "I own this agent or have permission to test it".
 2. **Connect.** Click *Auto-detect format* to work out how your agent's API expects messages and where the reply is, or pick *Simple JSON*, *OpenAI-compatible* or *Custom* yourself. *Send a test message* shows your agent's answer as a chat bubble, so you know it's wired up. API keys stay in memory and are never written to reports.
 3. **Run.** Pick *Quick check* (13 attacks) or *Full test* (109), optionally filter categories, and add phrases from your system prompt so leaks can be detected.
-4. **Read the results:** the overall success rate, a pass/fail verdict, success by category, and each attack that worked with the exact message sent and your agent's reply. Download the JSON, Markdown, JUnit or SARIF report.
+4. **Watch the run log.** While it runs, a live log shows every attempt as proof of what happened: the attack, the canary code planted in it, the exact message sent (and the document it was hidden in), your agent's reply and any tool calls, and the verdict, either *injected* (the code came back) or *blocked*. Filter it, and download it as a text file.
+5. **Read the results:** the overall success rate, a pass/fail verdict, success by category, and each attack that worked with the exact message sent and your agent's reply. Download the JSON, Markdown, JUnit or SARIF report.
 
 Try it on the demo bot: run `python -m examples.vulnerable_bot`, then paste `http://127.0.0.1:8000/chat`.
 
@@ -176,7 +177,7 @@ Useful options:
 
 Each model runs with its default thinking and effort settings, so this compares models as they ship; set per-model `overrides` in `models.yaml` (for example `{output_config: {effort: high}}`) to change that. No sampling parameters are sent.
 
-To test one model from the web app or CLI instead, serve the agent with `python -m examples.claude_agent` and point injectprobe at `http://127.0.0.1:8010/chat/claude-opus-5-5`. Compare any saved runs with:
+To test one model from the web app, start the agent with `python -m examples.claude_agent` (it reads `ANTHROPIC_API_KEY` from `.env`), run `injectprobe serve`, and paste `http://127.0.0.1:8010/chat/claude-haiku-5-5` (any model id works; use `/chat/guarded/<model>` for the guarded prompt). Set *Field for documents* to `documents`, *Field for conversation history* to `history`, *Where tool calls are* to `$.tool_calls`, and add `ORCHID-42` as a system prompt phrase. Compare any saved runs with:
 
 ```bash
 injectprobe compare runs/opus.json runs/haiku.json --label opus --label haiku
