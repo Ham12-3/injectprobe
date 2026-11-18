@@ -110,6 +110,7 @@ def list_attacks(
     attacks_path: list[Path] = typer.Option([], "--attacks", "-a", help="Extra attack file or folder."),
     quick: bool = typer.Option(False, "--quick", help="Only the quick smoke set."),
     as_json: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+    as_markdown: bool = typer.Option(False, "--markdown", help="Print a readable catalog with every attack's text."),
 ) -> None:
     """List attacks, filterable by category, severity, tag or id."""
     try:
@@ -118,6 +119,11 @@ def list_attacks(
         )
     except AttackLoadError as e:
         raise _fail(str(e)) from e
+    if as_markdown:
+        from .catalog import catalog_markdown
+
+        typer.echo(catalog_markdown(attacks), nl=False)
+        return
     if as_json:
         # Plain JSON (no highlighting) so it can be piped into other tools.
         typer.echo(json.dumps([a.model_dump(mode="json") for a in attacks], indent=2, ensure_ascii=False))

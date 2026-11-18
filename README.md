@@ -285,6 +285,8 @@ authorised: true   # I own this system or have written permission to test it
 | `exfiltration` | 10 | markdown images, links, HTML `<img>`, email tools |
 | `indirect` | 24 | payloads hidden in documents, web pages, emails and tool results |
 
+Read every attack's exact text, with a plain-English explanation of each technique, in **[docs/ATTACKS.md](docs/ATTACKS.md)** (regenerate it with `injectprobe list --markdown > docs/ATTACKS.md`).
+
 ```bash
 injectprobe list
 ```

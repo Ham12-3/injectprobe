@@ -236,3 +236,18 @@ def test_regexes_compile(library):
     for a in library:
         for r in a.detector.regex:
             re.compile(r.replace("{canary}", "X"))
+
+
+def test_attack_catalog_is_up_to_date():
+    """docs/ATTACKS.md is generated; regenerate with `injectprobe list --markdown > docs/ATTACKS.md`."""
+    from pathlib import Path
+
+    from injectprobe.catalog import catalog_markdown
+
+    doc = Path(__file__).resolve().parents[1] / "docs" / "ATTACKS.md"
+    expected = catalog_markdown(load_attacks())
+    assert doc.read_text(encoding="utf-8").replace("\r\n", "\n") == expected, (
+        "docs/ATTACKS.md is out of date: run `injectprobe list --markdown > docs/ATTACKS.md`"
+    )
+    assert expected.count("#### `") == len(load_attacks())
+    assert "CODE-PART-1" in expected and "What it says once decoded" in expected
