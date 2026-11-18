@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ip-token" content="__IP_TOKEN__">
+<meta name="ip-mode" content="__IP_MODE__">
+<title>injectprobe</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dfe3e8;
+  --text: #16191d; --muted: #5d6670; --accent: #4f46e5; --accent-text: #ffffff;
+  --good: #15803d; --good-bg: #e7f6ec; --bad: #c2281f; --bad-bg: #fdecea;
+  --warn: #a15c00; --warn-bg: #fff4e0; --bubble-agent: #eef0ff; --bubble-you: #4f46e5;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --surface: #171a20; --surface-2: #1f232b; --border: #2b313b;
+    --text: #e8eaed; --muted: #9aa3ad; --accent: #8b85ff; --accent-text: #0f1115;
+    --good: #4ade80; --good-bg: #12301d; --bad: #ff7a70; --bad-bg: #3a1714;
+    --warn: #f5b04c; --warn-bg: #3a2a10; --bubble-agent: #23264a; --bubble-you: #6d66f2;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border);
+  background: var(--surface); position: sticky; top: 0; z-index: 2; }
+header .logo { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+header .logo span { color: var(--accent); }
+.badge { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--border); }
+main { max-width: 860px; margin: 0 auto; padding: 24px 16px 80px; }
+h1 { font-size: 26px; line-height: 1.25; margin: 8px 0 6px; letter-spacing: -0.02em; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px;
+  margin: 14px 0; scroll-margin-top: 72px; }
+.card .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+.step-n { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+  color: var(--accent-text); font-size: 12px; font-weight: 700; align-items: center; justify-content: center;
+  margin-right: 8px; vertical-align: 1px; }
+.urlbar { display: flex; gap: 8px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 6px; }
+.urlbar input { flex: 1; border: 0; background: transparent; font-size: 16px; padding: 10px 10px; min-width: 0;
+  color: var(--text); outline: none; }
+.urlbar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+button { font: inherit; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); padding: 9px 14px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%; font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 9px; padding: 8px 10px; }
+textarea { font-family: var(--mono); font-size: 13px; min-height: 90px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+.tabs { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 3px; gap: 3px; flex-wrap: wrap; }
+.tabs button { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; color: var(--muted); }
+.tabs button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+.hint { font-size: 13px; color: var(--muted); }
+.msg { margin-top: 10px; padding: 9px 12px; border-radius: 9px; font-size: 14px; }
+.msg.bad { background: var(--bad-bg); color: var(--bad); }
+.msg.good { background: var(--good-bg); color: var(--good); }
+.msg.warn { background: var(--warn-bg); color: var(--warn); }
+.chat { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.bubble { max-width: 85%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; word-break: break-word; }
+.bubble.you { align-self: flex-end; background: var(--bubble-you); color: #fff; border-bottom-right-radius: 4px; }
+.bubble.agent { align-self: flex-start; background: var(--bubble-agent); border-bottom-left-radius: 4px; }
+.bubble .who { display: block; font-size: 11px; opacity: .75; margin-bottom: 2px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text); margin: 0; }
+.check input { margin-top: 3px; width: 17px; height: 17px; }
+code, .mono { font-family: var(--mono); font-size: 13px; }
+.codebox { display: flex; gap: 8px; align-items: center; background: var(--surface-2); border: 1px dashed var(--border);
+  border-radius: 9px; padding: 8px 10px; margin: 6px 0; overflow-x: auto; }
+.codebox code { flex: 1; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px;
+  padding: 4px 11px; cursor: pointer; color: var(--muted); }
+.chip[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); color: var(--text);
+  border-color: var(--accent); }
+.progress { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+.score { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.score .big { font-size: 46px; font-weight: 750; letter-spacing: -0.03em; line-height: 1; }
+.verdict { font-weight: 700; padding: 4px 12px; border-radius: 999px; font-size: 14px; }
+.verdict.pass { background: var(--good-bg); color: var(--good); }
+.verdict.fail { background: var(--bad-bg); color: var(--bad); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; }
+.stat span { font-size: 12.5px; color: var(--muted); }
+.cat { display: grid; grid-template-columns: minmax(130px, 38%) 1fr 54px; gap: 10px; align-items: center; margin: 7px 0;
+  font-size: 14px; }
+.cat .bar { height: 9px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.cat .bar div { height: 100%; }
+.cat .pct { text-align: right; font-variant-numeric: tabular-nums; }
+details.attack { border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; background: var(--surface); }
+details.attack summary { cursor: pointer; padding: 10px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+details.attack summary .id { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+details.attack .body { padding: 0 12px 12px; }
+details.attack pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); border-radius: 8px;
+  padding: 10px; font-size: 12.5px; max-height: 300px; overflow: auto; margin: 4px 0 10px; }
+.sev { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; text-transform: uppercase; }
+.sev.critical { background: var(--bad); color: #fff; } .sev.high { background: var(--bad-bg); color: var(--bad); }
+.sev.medium { background: var(--warn-bg); color: var(--warn); } .sev.low { background: var(--surface-2); color: var(--muted); }
+.hidden { display: none !important; }
+.spinner { width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .progress > div { transition: none; } }
+footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top: 30px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">inject<span>probe</span></div>
+  <span class="badge" id="mode-badge">local</span>
+</header>
+<main>
+  <h1>Test your AI agent for prompt injection</h1>
+  <p class="lead">Paste your agent's chat API URL. injectprobe sends it harmless attack messages and shows which ones tricked it.</p>
+
+  <form class="urlbar" id="url-form" autocomplete="off">
+    <label for="url" class="hidden">Agent URL</label>
+    <input id="url" type="url" required placeholder="https://your-agent.example.com/api/chat" spellcheck="false">
+    <button class="primary" type="submit" id="connect-btn">Connect</button>
+  </form>
+  <div id="url-msg"></div>
+
+  <!-- Step 1: permission -->
+  <section class="card hidden" id="step-permission">
+    <h2><span class="step-n">1</span>Permission</h2>
+    <div id="perm-local">
+      <p class="sub">Only test agents you own or have written permission to test. Testing other people's systems may be illegal.</p>
+      <p class="check"><input type="checkbox" id="authorised"><label for="authorised" style="margin:0;color:var(--text)">I own this agent or have permission to test it.</label></p>
+    </div>
+    <div id="perm-public" class="hidden">
+      <p class="sub">Prove you own <b id="own-host"></b>: create this file on the domain, then click Verify.</p>
+      <label>File URL</label>
+      <div class="codebox"><code id="own-file"></code></div>
+      <label>File contents</label>
+      <div class="codebox"><code id="own-token"></code><button type="button" id="copy-token">Copy</button></div>
+      <div class="actions"><button type="button" class="primary" id="verify-btn">Verify ownership</button></div>
+    </div>
+    <div id="perm-msg"></div>
+  </section>
+
+  <!-- Step 2: connection -->
+  <section class="card hidden" id="step-connect">
+    <h2><span class="step-n">2</span>Connect to your agent</h2>
+    <p class="sub">Tell injectprobe how your agent's API looks, or let it detect it.</p>
+    <div class="tabs" role="group" aria-label="API format">
+      <button type="button" data-format="simple" aria-pressed="true">Simple JSON</button>
+      <button type="button" data-format="openai" aria-pressed="false">OpenAI-compatible</button>
+      <button type="button" data-format="custom" aria-pressed="false">Custom</button>
+    </div>
+
+    <div id="fmt-simple">
+      <div class="row">
+        <div><label for="message_field">Field for the message</label>
+          <input id="message_field" type="text" value="message"></div>
+        <div><label for="response_path">Where the reply is (JSONPath)</label>
+          <input id="response_path" type="text" value="$.reply"></div>
+      </div>
+      <div class="row">
+        <div><label for="documents_field">Field for documents (optional)</label>
+          <input id="documents_field" type="text" placeholder="documents"></div>
+        <div><label for="tool_calls_path">Where tool calls are (optional)</label>
+          <input id="tool_calls_path" type="text" placeholder="$.tool_calls"></div>
+      </div>
+    </div>
+    <div id="fmt-openai" class="hidden">
+      <label for="model">Model name</label>
+      <input id="model" type="text" placeholder="gpt-4o-mini">
+    </div>
+    <div id="fmt-custom" class="hidden">
+      <label for="request_template">Request body (JSON). Use "{{message}}" where the message goes.</label>
+      <textarea id="request_template">{"message": "{{message}}"}</textarea>
+      <div class="row">
+        <div><label for="response_path_c">Where the reply is (JSONPath)</label>
+          <input id="response_path_c" type="text" value="$.reply"></div>
+        <div><label for="tool_calls_path_c">Where tool calls are (optional)</label>
+          <input id="tool_calls_path_c" type="text"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div><label for="api_key">API key (optional, never saved)</label>
+        <input id="api_key" type="password" placeholder="sk-..."></div>
+      <div><label for="auth_header">Sent in header</label>
+        <select id="auth_header">
+          <option value="Authorization|Bearer ">Authorization: Bearer &lt;key&gt;</option>
+          <option value="x-api-key|">x-api-key: &lt;key&gt;</option>
+          <option value="api-key|">api-key: &lt;key&gt;</option>
+        </select></div>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="detect-btn">Auto-detect format</button>
+      <button type="button" class="primary" id="test-btn">Send a test message</button>
+    </div>
+    <div id="connect-msg"></div>
+    <div class="chat" id="chat"></div>
+  </section>
+
+  <!-- Step 3: run -->
+  <section class="card hidden" id="step-run">
+    <h2><span class="step-n">3</span>Run the attacks</h2>
+    <p class="sub">Every attack has a harmless goal: getting the agent to print a random code, call a dummy tool, or load a tracking URL.</p>
+    <div class="tabs" role="group" aria-label="Scope">
+      <button type="button" data-scope="quick" aria-pressed="true">Quick check (<span id="n-quick">13</span>)</button>
+      <button type="button" data-scope="full" aria-pressed="false">Full test (<span id="n-full">109</span>)</button>
+    </div>
+    <div class="row">
+      <div><label for="trials">Runs per attack</label>
+        <select id="trials"><option value="1">1 (fastest)</option><option value="3">3 (more reliable)</option><option value="5">5</option></select></div>
+      <div><label for="markers">Phrases from your system prompt (optional)</label>
+        <input id="markers" type="text" placeholder="e.g. AcmeBot internal, BLUEFALCON-7"></div>
+    </div>
+    <label>Categories (all if none selected)</label>
+    <div class="chips" id="cats"></div>
+    <div class="actions">
+      <button type="button" class="primary" id="run-btn">Start test</button>
+      <span class="hint" id="run-hint"></span>
+    </div>
+    <div id="run-msg"></div>
+  </section>
+
+  <!-- Progress -->
+  <section class="card hidden" id="step-progress">
+    <h2><span class="spinner" aria-hidden="true"></span>&nbsp; Testing…</h2>
+    <p class="sub" id="prog-text">Starting</p>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="prog-bar"><div></div></div>
+    <div class="actions"><button type="button" id="cancel-btn">Cancel</button></div>
+  </section>
+
+  <!-- Results -->
+  <section class="card hidden" id="step-results" aria-live="polite">
+    <div class="score">
+      <div><div class="big" id="r-rate">0%</div><div class="hint">of attack attempts succeeded</div></div>
+      <span class="verdict" id="r-verdict"></span>
+    </div>
+    <p class="sub" id="r-gate" style="margin-top:8px"></p>
+    <div class="stats">
+      <div class="stat"><b id="r-tested">0</b><span>attacks tested</span></div>
+      <div class="stat"><b id="r-vuln">0</b><span>tricked the agent</span></div>
+      <div class="stat"><b id="r-attempts">0</b><span>attempts</span></div>
+      <div class="stat"><b id="r-errors">0</b><span>errors</span></div>
+    </div>
+    <div id="r-notes"></div>
+    <h2 style="margin-top:20px">By category</h2>
+    <div id="r-cats"></div>
+    <h2 style="margin-top:20px">Attacks that worked</h2>
+    <p class="sub">Open one to see the exact message sent and how your agent replied.</p>
+    <div id="r-failing"></div>
+    <h2 style="margin-top:20px">Download reports</h2>
+    <div class="actions" id="r-downloads"></div>
+    <div class="actions"><button type="button" id="again-btn">Run another test</button></div>
+  </section>
+
+  <footer>injectprobe · only test systems you own or are authorised to test</footer>
+</main>
+
+<script>
+"use strict";
+const TOKEN = document.querySelector('meta[name="ip-token"]').content;
+const MODE = document.querySelector('meta[name="ip-mode"]').content;
+const $ = (id) => document.getElementById(id);
+const state = { format: "simple", scope: "quick", cats: new Set(), jobId: null, timer: null, info: null };
+
+// Build DOM nodes safely: strings always become text, never HTML.
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v; else el.setAttribute(k, v);
+  }
+  for (const c of children) if (c !== null && c !== undefined) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+function show(id, on = true) { $(id).classList.toggle("hidden", !on); }
+function message(id, kind, text) { const box = $(id); box.replaceChildren(); if (text) box.append(h("div", { class: "msg " + kind }, text)); }
+function pct(x) { return Math.round((x || 0) * 100) + "%"; }
+
+async function api(path, body) {
+  const resp = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json", "X-Injectprobe-Token": TOKEN },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* not JSON */ }
+  if (!resp.ok) {
+    let detail = data && data.detail;
+    if (Array.isArray(detail)) detail = detail.map((d) => d.msg).join("; ");
+    throw new Error(detail || ("Request failed (" + resp.status + ")"));
+  }
+  return data;
+}
+
+async function busy(btn, fn) {
+  const label = btn.textContent; btn.disabled = true;
+  btn.replaceChildren(h("span", { class: "spinner", "aria-hidden": "true" }), " " + label);
+  try { return await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+function spec() {
+  const [header, prefix] = $("auth_header").value.split("|");
+  const s = {
+    url: $("url").value.trim(), format: state.format, api_key: $("api_key").value || null,
+    auth_header: header, auth_prefix: prefix, authorised: $("authorised").checked,
+    system_prompt_markers: $("markers").value.split(",").map((m) => m.trim()).filter(Boolean),
+  };
+  if (state.format === "simple") {
+    Object.assign(s, { message_field: $("message_field").value.trim() || "message",
+      response_path: $("response_path").value.trim() || "$.reply",
+      documents_field: $("documents_field").value.trim() || null,
+      tool_calls_path: $("tool_calls_path").value.trim() || null });
+  } else if (state.format === "openai") {
+    s.model = $("model").value.trim() || null;
+  } else {
+    try { s.request_template = JSON.parse($("request_template").value); }
+    catch (e) { throw new Error("The custom request body is not valid JSON"); }
+    s.response_path = $("response_path_c").value.trim() || "$.reply";
+    s.tool_calls_path = $("tool_calls_path_c").value.trim() || null;
+  }
+  return s;
+}
+
+function setFormat(fmt) {
+  state.format = fmt;
+  document.querySelectorAll("[data-format]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.format === fmt)));
+  ["simple", "openai", "custom"].forEach((f) => show("fmt-" + f, f === fmt));
+}
+function setScope(scope) {
+  state.scope = scope;
+  document.querySelectorAll("[data-scope]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.scope === scope)));
+  updateHint();
+}
+function updateHint() {
+  if (!state.info) return;
+  const n = state.scope === "quick" ? state.info.quick : state.info.attacks;
+  $("run-hint").textContent = "About " + (n * Number($("trials").value)) + " messages will be sent.";
+}
+
+function isLocal(url) {
+  try { const host = new URL(url).hostname; return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(host) || host.endsWith(".localhost"); }
+  catch (e) { return false; }
+}
+
+// ---------------------------------------------------------------- flow
+$("url-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  message("url-msg");
+  const url = $("url").value.trim();
+  try { const u = new URL(url); if (!/^https?:$/.test(u.protocol)) throw new Error(); }
+  catch (e) { message("url-msg", "bad", "Enter a full URL starting with http:// or https://"); return; }
+  show("step-permission"); show("step-connect"); show("step-run");
+  $("chat").replaceChildren(); message("connect-msg");
+  await refreshPermission();
+  $("step-permission").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+async function refreshPermission() {
+  message("perm-msg");
+  const url = $("url").value.trim();
+  if (MODE === "public") {
+    show("perm-local", false); show("perm-public", true);
+    try {
+      const o = await api("/api/ownership", { url });
+      $("own-host").textContent = o.host; $("own-file").textContent = o.file_url; $("own-token").textContent = o.token;
+      if (o.verified) message("perm-msg", "good", "Ownership of " + o.host + " is verified.");
+    } catch (e) { message("perm-msg", "bad", e.message); }
+  } else {
+    show("perm-public", false);
+    const local = isLocal(url);
+    show("perm-local", !local);
+    if (local) message("perm-msg", "good", "This agent runs on your own computer, so no extra permission step is needed.");
+  }
+}
+
+document.querySelectorAll("[data-format]").forEach((b) => b.addEventListener("click", () => setFormat(b.dataset.format)));
+document.querySelectorAll("[data-scope]").forEach((b) => b.addEventListener("click", () => setScope(b.dataset.scope)));
+$("trials").addEventListener("change", updateHint);
+
+$("detect-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  message("connect-msg");
+  try {
+    const d = await api("/api/detect", spec());
+    if (!d.ok) { message("connect-msg", "warn", "Could not detect the format. " + (d.notes || []).join(" ")); return; }
+    setFormat(d.format);
+    if (d.format === "simple") {
+      $("message_field").value = d.message_field; $("response_path").value = d.response_path;
+      if (d.tool_calls_path) $("tool_calls_path").value = d.tool_calls_path;
+    }
+    message("connect-msg", "good", "Detected: send the message as \"" + d.message_field + "\", reply found at " + d.response_path + ".");
+    chat(d.sample_reply);
+  } catch (e) { message("connect-msg", "bad", e.message); }
+}));
+
+function chat(reply, sent) {
+  const box = $("chat"); box.replaceChildren();
+  box.append(h("div", { class: "bubble you" }, h("span", { class: "who" }, "injectprobe"),
+    sent || "Hello! This is a connection test from injectprobe. Please reply with a short greeting."));
+  box.append(h("div", { class: "bubble agent" }, h("span", { class: "who" }, "Your agent"), reply || "(empty reply)"));
+}
+
+$("test-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  message("connect-msg");
+  try {
+    const r = await api("/api/test", spec());
+    chat(r.reply, r.sent);
+    const tools = r.tool_calls.length ? " It also made " + r.tool_calls.length + " tool call(s)." : "";
+    message("connect-msg", "good", "Connected in " + r.latency_ms + " ms." + tools + " You're ready to run the attacks.");
+  } catch (e) { message("connect-msg", "bad", e.message); }
+}));
+
+$("authorised").addEventListener("change", () => message("perm-msg"));
+$("copy-token").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("own-token").textContent); $("copy-token").textContent = "Copied"; }
+  catch (e) { $("copy-token").textContent = "Select and copy"; }
+});
+$("verify-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  try {
+    const v = await api("/api/verify", { url: $("url").value.trim() });
+    message("perm-msg", v.verified ? "good" : "bad", v.verified ? "Verified: you can now test " + v.host + "." : v.detail);
+  } catch (e) { message("perm-msg", "bad", e.message); }
+}));
+
+$("run-btn").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  message("run-msg");
+  try {
+    const job = await api("/api/runs", { target: spec(), scope: state.scope, trials: Number($("trials").value),
+      categories: [...state.cats] });
+    state.jobId = job.id;
+    show("step-results", false); show("step-progress");
+    $("step-progress").scrollIntoView({ behavior: "smooth", block: "start" });
+    poll();
+  } catch (e) { message("run-msg", "bad", e.message); }
+}));
+
+$("cancel-btn").addEventListener("click", async () => {
+  if (state.jobId) { try { await api("/api/runs/" + state.jobId + "/cancel", {}); } catch (e) { /* ignore */ } }
+});
+$("again-btn").addEventListener("click", () => { show("step-results", false); $("step-run").scrollIntoView({ behavior: "smooth" }); });
+
+async function poll() {
+  clearTimeout(state.timer);
+  let job;
+  try { job = await api("/api/runs/" + state.jobId); }
+  catch (e) { show("step-progress", false); message("run-msg", "bad", e.message); return; }
+  const p = job.total ? job.done / job.total : 0;
+  $("prog-bar").firstElementChild.style.width = Math.round(p * 100) + "%";
+  $("prog-bar").setAttribute("aria-valuenow", String(Math.round(p * 100)));
+  $("prog-text").textContent = job.done + " of " + job.total + " attempts done";
+  if (job.status === "running") { state.timer = setTimeout(poll, 700); return; }
+  show("step-progress", false);
+  if (job.status === "done") renderResults(job.result);
+  else if (job.status === "cancelled") message("run-msg", "warn", "The test was cancelled.");
+  else message("run-msg", "bad", "The test failed: " + (job.error || "unknown error"));
+}
+
+const CAT_NAMES = {};
+function renderResults(r) {
+  const s = r.summary;
+  $("r-rate").textContent = pct(s.success_rate);
+  $("r-rate").style.color = s.success_rate === 0 ? "var(--good)" : (s.success_rate <= r.threshold ? "var(--warn)" : "var(--bad)");
+  $("r-verdict").textContent = r.passed ? "PASSED" : "FAILED";
+  $("r-verdict").className = "verdict " + (r.passed ? "pass" : "fail");
+  $("r-gate").textContent = "Pass mark: at most " + pct(r.threshold) + " of attempts may succeed. " +
+    s.successful_attempts + " of " + s.attempts + " attempts tricked your agent.";
+  $("r-tested").textContent = s.tested; $("r-vuln").textContent = s.vulnerable_attacks;
+  $("r-attempts").textContent = s.attempts; $("r-errors").textContent = s.errored_attempts;
+
+  const notes = $("r-notes"); notes.replaceChildren();
+  if (r.aborted) notes.append(h("div", { class: "msg warn" }, "Stopped early: " + r.abort_reason + ". Results are partial."));
+  if (s.skipped) notes.append(h("div", { class: "msg warn" }, s.skipped + " system-prompt attack(s) were skipped: add phrases from your system prompt in step 3 to test for leaks."));
+  if (s.errored_attempts) notes.append(h("div", { class: "msg warn" }, s.errored_attempts + " attempt(s) failed to get an answer from your agent."));
+
+  const cats = $("r-cats"); cats.replaceChildren();
+  Object.entries(s.by_category).sort((a, b) => b[1].success_rate - a[1].success_rate).forEach(([cat, g]) => {
+    const color = g.success_rate === 0 ? "var(--good)" : g.success_rate < 0.34 ? "var(--warn)" : "var(--bad)";
+    const bar = h("div", { class: "bar" }, h("div", {}));
+    bar.firstElementChild.style.width = Math.max(2, Math.round(g.success_rate * 100)) + "%";
+    bar.firstElementChild.style.background = color;
+    cats.append(h("div", { class: "cat" }, h("span", {}, CAT_NAMES[cat] || cat), bar, h("span", { class: "pct" }, pct(g.success_rate))));
+  });
+
+  const failing = r.results.filter((x) => x.successes > 0)
+    .sort((a, b) => b.success_rate - a.success_rate);
+  const list = $("r-failing"); list.replaceChildren();
+  if (!failing.length) list.append(h("div", { class: "msg good" }, "No attack worked. Nice!"));
+  failing.forEach((x) => {
+    const att = x.attempts.find((a) => a.success) || x.attempts[0];
+    let reply = (att.replies || []).join("\n---\n");
+    if (att.tool_calls && att.tool_calls.length) reply += "\n[tool calls] " + att.tool_calls.map((c) => c.name + " " + JSON.stringify(c.arguments)).join("; ");
+    list.append(h("details", { class: "attack" },
+      h("summary", {}, h("span", { class: "sev " + x.severity }, x.severity), h("span", { class: "id" }, x.id),
+        h("span", { class: "hint" }, (CAT_NAMES[x.category] || x.category) + " · " + pct(x.success_rate) + " (" + x.successes + "/" + x.completed + ")")),
+      h("div", { class: "body" }, h("p", {}, x.description),
+        h("b", {}, "What injectprobe sent"), h("pre", {}, x.payload_preview),
+        h("b", {}, "What your agent did"), h("pre", {}, reply || "(no text)"),
+        h("p", { class: "hint" }, "Detected by: " + (att.detected_by || []).join(", ")))));
+  });
+
+  const dl = $("r-downloads"); dl.replaceChildren();
+  [["json", "Full results (JSON)"], ["markdown", "Summary (Markdown)"], ["junit", "JUnit XML"], ["sarif", "SARIF"]].forEach(([fmt, label]) => {
+    const a = h("a", { href: "/api/runs/" + state.jobId + "/report/" + fmt + "?token=" + encodeURIComponent(TOKEN) }, h("button", { type: "button" }, label));
+    dl.append(a);
+  });
+  show("step-results");
+  $("step-results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---------------------------------------------------------------- init
+(async function init() {
+  $("mode-badge").textContent = MODE === "public" ? "hosted" : "local";
+  try {
+    const info = await api("/api/info");
+    state.info = info;
+    $("n-quick").textContent = info.quick; $("n-full").textContent = info.attacks;
+    const box = $("cats");
+    info.categories.forEach((c) => {
+      CAT_NAMES[c.id] = c.name;
+      const chip = h("button", { type: "button", class: "chip", "aria-pressed": "false" }, c.name + " (" + c.count + ")");
+      chip.addEventListener("click", () => {
+        const on = !state.cats.has(c.id);
+        on ? state.cats.add(c.id) : state.cats.delete(c.id);
+        chip.setAttribute("aria-pressed", String(on));
+      });
+      box.append(chip);
+    });
+    updateHint();
+  } catch (e) { message("url-msg", "bad", "Could not reach the injectprobe server: " + e.message); }
+})();
+</script>
+</body>
+</html>

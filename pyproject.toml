@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=1.0"]
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
 demo = ["fastapi>=0.110", "uvicorn>=0.29"]
 dev = ["pytest>=8", "fastapi>=0.110", "uvicorn>=0.29", "anthropic>=1.0"]
 
@@ -43,7 +44,7 @@ Homepage = "https://github.com/Ham12-3/injectprobe"
 where = ["src"]
 
 [tool.setuptools.package-data]
-injectprobe = ["attacks/*.yaml", "py.typed"]
+injectprobe = ["attacks/*.yaml", "py.typed", "web/static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

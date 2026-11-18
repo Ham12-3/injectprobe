@@ -39,6 +39,8 @@ def build_body(template: Any, request: TargetRequest) -> Any:
     uses_context = _uses_context(template)
     message = (request.messages[-1].content if request.messages else "") if uses_context else flatten_last_turn(request)
     history = [m.model_dump() for m in request.messages]
+    if history and not uses_context:
+        history[-1]["content"] = message  # indirect content rides along with the last user turn
     documents = [c.model_dump(mode="json") for c in request.context]
     context = context_to_text(request.context)
 
