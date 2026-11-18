@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,20 @@ from .mutators import UnknownMutatorError
 from .reports import FILE_FORMATS, render, write_reports
 from .reports.terminal import diff_markdown, print_diff, print_report
 from .templates import TARGET_CHOICES, starter_config
+
+def _utf8_streams() -> None:
+    """Attack payloads include many scripts. On Windows a redirected stdout defaults to a
+    legacy code page and would crash on them, so switch the standard streams to UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):  # pragma: no cover - exotic streams
+                pass
+
+
+_utf8_streams()
 
 app = typer.Typer(
     name="injectprobe",
@@ -101,7 +116,8 @@ def list_attacks(
     except AttackLoadError as e:
         raise _fail(str(e)) from e
     if as_json:
-        console.print_json(json.dumps([a.model_dump(mode="json") for a in attacks]))
+        # Plain JSON (no highlighting) so it can be piped into other tools.
+        typer.echo(json.dumps([a.model_dump(mode="json") for a in attacks], indent=2, ensure_ascii=False))
         return
     t = Table(title=f"{len(attacks)} attacks")
     for col in ("ID", "Category", "Severity", "Delivery", "Tags", "Description"):

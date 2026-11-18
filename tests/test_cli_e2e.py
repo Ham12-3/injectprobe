@@ -177,6 +177,27 @@ def test_e2e_custom_attack_and_mutator(tmp_path):
     assert all(x["success_rate"] == 1.0 for x in res["results"])
 
 
+def test_non_utf8_redirected_stdout(tmp_path):
+    """Reproduces Windows' legacy code page on any OS: payloads in many scripts must not crash output."""
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    out = subprocess.run([sys.executable, "-m", "injectprobe", "list", "--json"],
+                         capture_output=True, env=env, cwd=tmp_path, timeout=120)
+    assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
+    attacks = json.loads(out.stdout.decode("utf-8"))
+    assert any("Іgnоrе" in a["payload"] for a in attacks if a["payload"])  # Cyrillic homoglyphs survive
+
+    p = write_cfg(tmp_path)
+    out2 = subprocess.run([sys.executable, "-m", "injectprobe", "run", "-c", str(p), "--quick", "--no-progress",
+                           "--category", "multilingual", "--category", "encoding"],
+                          capture_output=True, env=env, cwd=tmp_path, timeout=120)
+    assert out2.returncode == 1, out2.stderr.decode("utf-8", "replace")
+    assert b"Traceback" not in out2.stderr
+
+
 def test_report_bad_file(tmp_path):
     p = tmp_path / "x.json"
     p.write_text("{}")
